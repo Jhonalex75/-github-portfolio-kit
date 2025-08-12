@@ -59,3 +59,16 @@ Para cada proyecto, repite el patrón: copia plantillas, completa datos, confirm
 - [ ] CI activado (Actions) en repos Python.
 - [ ] Despliegue disponible (GitHub Pages/Fly.io/Render/Heroku/Docker).
 - [ ] Estilo y estructura consistentes en todos los repos.
+
+## Marcar este repo como Template
+
+1) Ve a Settings → General → Template repository y actívalo.
+2) Opcional: añade Topics (template, ci-cd, python, docker, engineering).
+3) Para crear nuevos proyectos: botón "Use this template".
+
+## Guía rápida de uso
+
+- Para un proyecto Python: copia `TEMPLATES/requirements_template.txt` como `requirements.txt` o usa `TEMPLATES/pyproject_template.toml`.
+- Activa CI copiando `.github/workflows/python-ci.yml`.
+- Añade `TEMPLATES/README_PROJECT_TEMPLATE.md` como README y completa secciones.
+- Si despliegas: usa `TEMPLATES/Dockerfile_template` y la guía `SCRIPTS/DEPLOY_GUIDE.md`.
