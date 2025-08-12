@@ -1,0 +1,24 @@
+# Imagen base
+FROM python:3.11-slim
+
+# Variables de entorno
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Directorio de trabajo
+WORKDIR /app
+
+# Dependencias
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt || true
+
+# Copia del proyecto
+COPY . .
+
+# Usuario no root (opcional)
+# RUN useradd -m appuser && chown -R appuser /app
+# USER appuser
+
+# Comando por defecto (ajusta al entrypoint real)
+CMD ["python", "-m", "src.main"]

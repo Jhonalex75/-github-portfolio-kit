@@ -1,0 +1,19 @@
+name: ingenieria
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - sympy
+  - pandas
+  - matplotlib
+  - pip
+  - pip:
+      - plotly
+      - pytest
+      - black
+      - flake8
+      # - flask
+      # - streamlit

@@ -1,0 +1,13 @@
+# Requisitos base para proyectos de ingeniería con Python
+numpy
+scipy
+sympy
+pandas
+matplotlib
+plotly
+pytest
+black
+flake8
+# Para apps web simples (descomentar si aplica)
+# flask
+# streamlit
