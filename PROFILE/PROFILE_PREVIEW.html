@@ -1,10 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Profile Preview - Jhon Alexander</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body {
+            box-sizing: border-box;
+            min-width: 200px;
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 45px;
+            background-color: #0d1117; /* GitHub Dark Dimmed */
+        }
+        .markdown-body {
+            box-sizing: border-box;
+            min-width: 200px;
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 45px;
+            background-color: #0d1117;
+            color: #c9d1d9;
+        }
+        /* Custom adjustments for dark mode preview */
+        .markdown-body table {
+            display: block;
+            width: 100%;
+            overflow: auto;
+        }
+        .markdown-body img {
+            background-color: transparent;
+        }
+    </style>
+</head>
+<body>
+    <div id="content" class="markdown-body"></div>
+
+    <script>
+        const markdownContent = `
 <div align="center">
   <img src="./banner.png" alt="Jhon Alexander Banner" width="100%" />
 </div>
 
 <div align="center">
-  <h1 style="font-size: 2.5rem; font-weight: bold;">Hola, soy Jhon Alexander 👋</h1>
-  <h3 style="color: #888;">Ingeniero Mecánico | Desarrollador Python | Especialista en Simulación</h3>
+  <h1 style="font-size: 2.5rem; font-weight: bold; border-bottom: none;">Hola, soy Jhon Alexander 👋</h1>
+  <h3 style="color: #8b949e;">Ingeniero Mecánico | Desarrollador Python | Especialista en Simulación</h3>
   
   <p>
     <a href="https://github.com/Jhonalex75">
@@ -87,10 +129,10 @@ Ingeniero Mecánico con **Maestría en Ciencias de la Ingeniería**. Mi enfoque 
 
 | Proyecto | Tipo | Stack Principal | Descripción |
 | :--- | :--- | :--- | :--- |
-| **🏗️ POLEAS** | `Ingeniería` | ![Python](https://img.shields.io/badge/-Python-333) ![SciPy](https://img.shields.io/badge/-SciPy-333) | Diseño automatizado y cálculo de transmisión de potencia. |
-| **🏗️ Grúa** | `Simulación` | ![Python](https://img.shields.io/badge/-Python-333) ![Matplotlib](https://img.shields.io/badge/-Matplotlib-333) | Análisis de estabilidad y cargas en grúas industriales. |
-| **🔧 Mantenimiento** | `Web App` | ![Flask](https://img.shields.io/badge/-Flask-333) ![Pandas](https://img.shields.io/badge/-Pandas-333) | Sistema integral para gestión y planificación de mantenimiento. |
-| **🎲 Modelos Estocásticos** | `Investigación` | ![Python](https://img.shields.io/badge/-Python-333) ![NumPy](https://img.shields.io/badge/-NumPy-333) | Simulaciones probabilísticas para toma de decisiones. |
+| **🏗️ POLEAS** | \`Ingeniería\` | ![Python](https://img.shields.io/badge/-Python-333) ![SciPy](https://img.shields.io/badge/-SciPy-333) | Diseño automatizado y cálculo de transmisión de potencia. |
+| **🏗️ Grúa** | \`Simulación\` | ![Python](https://img.shields.io/badge/-Python-333) ![Matplotlib](https://img.shields.io/badge/-Matplotlib-333) | Análisis de estabilidad y cargas en grúas industriales. |
+| **🔧 Mantenimiento** | \`Web App\` | ![Flask](https://img.shields.io/badge/-Flask-333) ![Pandas](https://img.shields.io/badge/-Pandas-333) | Sistema integral para gestión y planificación de mantenimiento. |
+| **🎲 Modelos Estocásticos** | \`Investigación\` | ![Python](https://img.shields.io/badge/-Python-333) ![NumPy](https://img.shields.io/badge/-NumPy-333) | Simulaciones probabilísticas para toma de decisiones. |
 
 ---
 
@@ -101,3 +143,8 @@ Ingeniero Mecánico con **Maestría en Ciencias de la Ingeniería**. Mi enfoque 
     <img src="https://img.shields.io/badge/Volver_al_Inicio-181717?style=for-the-badge&logo=github&logoColor=white" alt="Back to Top" />
   </a>
 </div>
+        `;
+        document.getElementById('content').innerHTML = marked.parse(markdownContent);
+    </script>
+</body>
+</html>
