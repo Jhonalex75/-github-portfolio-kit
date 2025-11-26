@@ -1,0 +1,17 @@
+Flask
+matplotlib
+numpy
+openpyxl
+pandas
+plotly
+PySide6
+requests
+scikit-learn
+scipy
+seaborn
+selenium
+SQLAlchemy
+sympy
+vpython
+webdriver-manager
+xlsxwriter
