@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── Daily reports evidence — 20MB max per file ──────────────────────────
+    match /projects/{projectId}/assets/{filename} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 20 * 1024 * 1024;
+    }
+
+    // ── Project Data — Bóveda Documental Técnica ────────────────────────────
+    // Covers ALL technical document subfolders under a project:
+    //   procedimientos/, planos/, reportes/, registros_inspeccion/,
+    //   memorias_calculo/, otros/
+    match /projects/{projectId}/{docTypeFolder}/{filename} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 50 * 1024 * 1024;
+    }
+
+    // ── Nested paths (e.g. projects/{code}/procedimientos/sub/file) ─────────
+    match /projects/{projectId}/{docTypeFolder}/{subpath=**} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 50 * 1024 * 1024;
+    }
+
+    // ── General fallback — authenticated read/write (catches all else) ──────
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

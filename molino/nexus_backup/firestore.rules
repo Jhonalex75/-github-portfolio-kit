@@ -1,0 +1,240 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===== HELPER FUNCTIONS =====
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isAdmin(userId) {
+      return (request.auth.token.get('admin', false) == true) || 
+             request.auth.token.email.lower() == "jhonalexandervm@outlook.com" ||
+             request.auth.token.email.lower() == "jhonalexanderv@gmail.com";
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      let userRole = getUserData().role;
+      return userRole == role;
+    }
+    
+    function isCollaborator(project) {
+      return request.auth.uid in project.data.collaborators;
+    }
+
+    // ===== NEXUS OPERATIONAL PROJECT — Direct access (no parent dependency) =====
+    // This rule specifically covers the default operational project used by the app.
+    // It does NOT require the parent /projects/default-nexus-project document to exist,
+    // avoiding permission-denied errors from resource.data access on virtual docs.
+    match /projects/default-nexus-project/daily_reports/{reportId} {
+      allow read:   if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (
+                       request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
+                       isAdmin(request.auth.uid)
+                    );
+    }
+
+    // ===== USERS COLLECTION =====
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isOwner(userId);
+      
+      // Users can update their own profile (except sensitive fields)
+      allow update: if isOwner(userId) && 
+                       !request.resource.data.keys().hasAny(['admin', 'role', 'permissions']);
+      
+      // User creation on signup
+      allow create: if request.auth.uid == userId && 
+                       !request.resource.data.keys().hasAny(['admin', 'role']);
+      
+      // Admin can manage any user
+      allow read, write: if isAdmin(request.auth.uid);
+      
+      // User preferences subcollection
+      match /preferences/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // ===== PROJECTS COLLECTION =====
+    match /projects/{projectId} {
+      // Create projects
+      allow create: if isAuthenticated() && 
+                       request.resource.data.ownerId == request.auth.uid;
+      
+      // Read projects (owner, admin, collaborators, or public)
+      allow read: if isOwner(resource.data.ownerId) ||
+                     isAdmin(request.auth.uid) ||
+                     request.auth.uid in resource.data.collaborators ||
+                     (resource.data.isPublic == true && isAuthenticated());
+      
+      // Update projects (owner, admin, or collaborators with write access)
+      allow update: if isOwner(resource.data.ownerId) ||
+                       isAdmin(request.auth.uid) ||
+                       (request.auth.uid in resource.data.collaborators && 
+                        get(/databases/$(database)/documents/projects/$(projectId)).data.collaborators[request.auth.uid].hasWrite != false);
+      
+      // Delete projects (owner or admin only)
+      allow delete: if isOwner(resource.data.ownerId) ||
+                       isAdmin(request.auth.uid);
+      
+      // Designs subcollection
+      match /designs/{designId} {
+        allow read: if isOwner(resource.data.ownerId) ||
+                       isAdmin(request.auth.uid) ||
+                       request.auth.uid in resource.data.collaborators;
+        allow write: if isOwner(resource.data.ownerId) ||
+                        isAdmin(request.auth.uid);
+      }
+      
+      // Simulations subcollection
+      match /simulations/{simulationId} {
+        allow read: if isOwner(resource.data.ownerId) ||
+                       isAdmin(request.auth.uid) ||
+                       request.auth.uid in resource.data.collaborators;
+        allow write: if isOwner(resource.data.ownerId) ||
+                        isAdmin(request.auth.uid);
+      }
+      
+      // Reports subcollection
+      match /reports/{reportId} {
+        allow read: if isOwner(resource.data.ownerId) ||
+                       isAdmin(request.auth.uid) ||
+                       request.auth.uid in resource.data.collaborators;
+        allow write: if isOwner(resource.data.ownerId) ||
+                        isAdmin(request.auth.uid);
+      }
+
+      // Assets subcollection
+      match /assets/{assetId} {
+        allow read, write: if isOwner(resource.data.ownerId) ||
+                              isAdmin(request.auth.uid) ||
+                              request.auth.uid in resource.data.collaborators;
+      }
+
+      // ===== DAILY REPORTS SUBCOLLECTION =====
+      match /daily_reports/{reportId} {
+        // Todo el equipo autenticado puede VER los reportes
+        allow read: if isAuthenticated();
+
+        // Cualquier miembro autenticado puede CREAR (incluye addDoc inicial con solo timestamp)
+        allow create: if isAuthenticated();
+
+        // El autor o un admin puede EDITAR
+        allow update: if isAuthenticated();
+
+        // Solo ROOT UIDs o admin puede BORRAR
+        allow delete: if isAuthenticated() && (
+                         request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
+                         isAdmin(request.auth.uid)
+                      );
+      }
+    }
+
+    // ===== CHAT/MESSAGES COLLECTION =====
+    match /conversations/{convId} {
+      allow read, create, update: if isAuthenticated();
+      allow delete: if isAdmin(request.auth.uid);
+      
+      match /messages/{msgId} {
+        allow read, create, update: if isAuthenticated();
+        allow delete: if request.auth.uid == resource.data.senderId || 
+                        isAdmin(request.auth.uid);
+      }
+    }
+
+    // ===== QA/INSPECTION LOGS =====
+    match /inspecciones_qa/{insId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                       request.resource.data.createdBy == request.auth.uid;
+      allow update: if request.auth.uid == resource.data.createdBy ||
+                       isAdmin(request.auth.uid);
+      allow delete: if isAdmin(request.auth.uid);
+    }
+
+    // ===== TECHNICAL LOGS =====
+    match /technical_logs/{logId} {
+      allow read, create, update: if isAuthenticated();
+      allow delete: if isAdmin(request.auth.uid);
+    }
+
+    // ===== RESEARCH DOCUMENTS =====
+    match /research_documents/{docId} {
+      allow read, create, update: if isAuthenticated();
+      allow delete: if isAdmin(request.auth.uid);
+    }
+
+    // ===== SHARED RESOURCES =====
+    match /shared/{resourceId} {
+      allow read: if isAuthenticated() && 
+                     (resource.data.isPublic == true ||
+                      request.auth.uid in resource.data.viewers);
+      allow write: if isOwner(resource.data.ownerId) ||
+                      isAdmin(request.auth.uid);
+    }
+
+    // ===== TEMPLATES (READ-ONLY FOR USERS) =====
+    match /templates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin(request.auth.uid);
+    }
+
+    // ===== ACTIVITY LOGS =====
+    match /activity/{userId}/logs/{logId} {
+      allow create: if isOwner(userId) && 
+                       request.resource.data.timestamp == request.time;
+      allow read: if isOwner(userId) || isAdmin(request.auth.uid);
+    }
+
+    // ===== PROJECT DATA — GESTIÓN DOCUMENTAL TÉCNICA =====
+    match /project_data/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      
+      // Allow any authenticated team member to update (e.g. for reviews/rejects)
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin(request.auth.uid);
+
+      // Audit logs subcollection
+      match /logs/{logId} {
+        allow read: if isAuthenticated();
+        // Allow creating logs to leave trace history
+        allow create: if isAuthenticated();
+      }
+    }
+
+    // ===== NON CONFORMITIES (NCs) =====
+    match /non_conformities/{ncId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin(request.auth.uid);
+    }
+
+
+    // ===== QUALITY NCS (Non-Conformities) =====
+    match /quality_ncs/{ncId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin(request.auth.uid);
+    }
+
+    // ===== DEFAULT DENY ALL =====
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
