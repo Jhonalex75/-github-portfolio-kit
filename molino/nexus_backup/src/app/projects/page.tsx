@@ -202,42 +202,59 @@ export default function ProjectDataPage() {
         new_status: 'borrador'
       });
 
-      // El documento ya existe en Firestore → mostrar éxito al usuario
       toast({
         title: "✅ DOCUMENTO REGISTRADO",
-        description: `${documentId} catalogado en Bóveda Documental. Subiendo archivo a Cloud...`,
+        description: `${documentId} catalogado. Subiendo archivo a Cloud Storage…`,
       });
 
-      // ── PASO 2 (OPCIONAL, NO BLOQUEANTE): Intentar subir a Cloud Storage ──
-      // Si falla, el documento ya está registrado. Se actualiza el URL si tiene éxito.
+      // ── PASO 2: Subida a Storage (necesaria para que otros usuarios puedan descargar) ──
       if (firebaseApp) {
-        (async () => {
-          try {
-            const { uploadProjectDocument } = await import("@/firebase/storage-utils");
-            const uploadResult = await Promise.race([
-              uploadProjectDocument(firebaseApp, file, storagePath),
-              new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("Storage timeout (30s)")), 30_000)
-              ),
-            ]);
+        try {
+          const { uploadProjectDocument } = await import("@/firebase/storage-utils");
+          const uploadResult = await Promise.race([
+            uploadProjectDocument(firebaseApp, file, storagePath),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Tiempo de espera de Storage (30 s)")), 30_000)
+            ),
+          ]);
 
-            if (uploadResult && (uploadResult as any).success && (uploadResult as any).downloadUrl) {
-              // Actualizar el documento con la URL real
-              await updateDoc(newDocRef, {
-                download_url: (uploadResult as any).downloadUrl,
-                storage_path: (uploadResult as any).storagePath || storagePath,
-                last_modified: new Date().toISOString(),
-              });
-              toast({
-                title: "☁️ ARCHIVO EN CLOUD",
-                description: `${documentId} — Archivo disponible para descarga.`,
-              });
-            }
-          } catch (storageErr) {
-            console.warn("[ProjectData] Cloud Storage no disponible (archivo no en cloud):", storageErr);
-            // No mostrar error al usuario — el documento ya está registrado.
+          if (uploadResult.success && uploadResult.downloadUrl) {
+            await updateDoc(newDocRef, {
+              download_url: uploadResult.downloadUrl,
+              storage_path: uploadResult.storagePath || storagePath,
+              last_modified: new Date().toISOString(),
+            });
+            toast({
+              title: "☁️ Archivo en la nube",
+              description: `${documentId} — Listo para descarga por cualquier usuario registrado.`,
+            });
+          } else {
+            await updateDoc(newDocRef, {
+              download_url: "pending",
+              last_modified: new Date().toISOString(),
+            });
+            toast({
+              variant: "destructive",
+              title: "No se pudo subir el archivo",
+              description:
+                uploadResult.error ||
+                "Revise reglas de Storage, conexión y NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET en .env.local.",
+            });
           }
-        })();
+        } catch (storageErr: unknown) {
+          console.error("[ProjectData] Cloud Storage:", storageErr);
+          const msg =
+            storageErr instanceof Error ? storageErr.message : "Error desconocido de Storage";
+          await updateDoc(newDocRef, {
+            download_url: "pending",
+            last_modified: new Date().toISOString(),
+          }).catch(console.error);
+          toast({
+            variant: "destructive",
+            title: "Error de almacenamiento",
+            description: `${msg} Compruebe que Storage esté activo y que inicie sesión en la app.`,
+          });
+        }
       }
 
     } catch (err: any) {
@@ -258,7 +275,7 @@ export default function ProjectDataPage() {
       toast({
         variant: "destructive",
         title: "📁 ARCHIVO NO DISPONIBLE EN LA NUBE",
-        description: `"${docItem.file_name}" está catalogado pero no tiene enlace de descarga. Active Firebase Storage en la consola de Firebase para habilitar las descargas.`,
+        description: `"${docItem.file_name}" está en la base de datos pero la subida a Storage falló o está pendiente. Vuelva a subir el archivo desde la app o revise la consola de Firebase (Storage y reglas).`,
       });
       return;
     }

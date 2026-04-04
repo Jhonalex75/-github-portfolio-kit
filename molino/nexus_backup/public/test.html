@@ -1,0 +1,84 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>VISOR DE EMERGENCIA SAG MILL - NEXUS</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; background: #ff0000; overflow: hidden; } 
+        #msg { 
+            position: absolute; top: 20px; left: 20px; 
+            color: white; font-family: 'Courier New', monospace; 
+            background: rgba(0,0,0,0.8); padding: 15px; 
+            z-index: 100; border-left: 5px solid #00E5FF;
+            font-size: 14px;
+        }
+        .info { font-size: 10px; color: #aaa; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div id="msg">
+        SISTEMA INICIADO. BUSCANDO ARCHIVO...
+        <div class="info">PROTOCOL: GLTF_LOADER_v128</div>
+    </div>
+    <script>
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020617);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+        camera.position.set(800, 600, 800);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        const light = new THREE.DirectionalLight(0xffffff, 2.5);
+        light.position.set(100, 200, 100);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+        const loader = new THREE.GLTFLoader();
+        // ESTA RUTA DEBE EXISTIR EN /public/
+        const modelUrl = './M001-101_Sag Mill Assembly 3D Model_R1_InfoOnly.glb';
+
+        loader.load(modelUrl, 
+            (gltf) => {
+                scene.add(gltf.scene);
+                document.getElementById('msg').innerHTML = "¡MOLINO CARGADO EXITOSAMENTE!<div class='info'>STATUS: OPERATIONAL</div>";
+                document.getElementById('msg').style.borderColor = "lime";
+                document.getElementById('msg').style.color = "lime";
+                document.body.style.background = "#020617";
+            },
+            (xhr) => {
+                const p = Math.round(xhr.loaded / xhr.total * 100);
+                document.getElementById('msg').innerHTML = "CARGANDO ACERO: " + p + "%<div class='info'>STREAMING BINARY...</div>";
+            },
+            (err) => {
+                document.getElementById('msg').innerHTML = "ERROR: ARCHIVO NO DETECTADO EN /public/<div class='info'>POR FAVOR, MUEVA EL .GLB A LA CARPETA PUBLIC</div>";
+                document.getElementById('msg').style.color = "red";
+                document.getElementById('msg').style.borderColor = "red";
+            }
+        );
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

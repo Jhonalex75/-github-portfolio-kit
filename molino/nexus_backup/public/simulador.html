@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus BIM 4D | Fotorrealismo Industrial</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <style>
+        body { margin: 0; background: #020617; font-family: 'Inter', sans-serif; color: #00E5FF; overflow: hidden; }
+        #container { width: 100vw; height: 100vh; }
+        #ui-panel {
+            position: absolute; top: 40px; left: 40px; width: 320px;
+            background: rgba(2, 6, 23, 0.9); border: 1px solid rgba(0, 229, 255, 0.2);
+            padding: 25px; backdrop-filter: blur(10px); border-left: 4px solid #00E5FF;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+        }
+        h1 { font-size: 14px; margin: 0 0 5px 0; letter-spacing: 2px; text-transform: uppercase; font-weight: 900; }
+        p { font-size: 9px; color: rgba(0, 229, 255, 0.6); margin-bottom: 20px; text-transform: uppercase; }
+        .btn-maniobra {
+            width: 100%; padding: 12px; background: #FF4500; color: white;
+            border: none; cursor: pointer; font-size: 10px; font-weight: 900; 
+            text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s;
+            box-shadow: 0 0 20px rgba(255, 69, 0, 0.3);
+        }
+        .btn-maniobra:hover { background: #FF6347; transform: translateY(-2px); }
+        #telemetry { margin-top: 25px; border-top: 1px solid rgba(0, 229, 255, 0.1); padding-top: 15px; }
+        .stat { display: flex; justify-content: space-between; font-size: 8px; margin-bottom: 6px; }
+        .value { color: #fff; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="ui-panel">
+        <h1>Control de Montaje</h1>
+        <p>Molino SAG | Dossier QA/QC C.4817</p>
+        <button id="btn-next" class="btn-maniobra">Ejecutar Siguiente Maniobra</button>
+        <div id="telemetry">
+            <div class="stat"><span>FASE ACTUAL</span> <span id="val-phase" class="value">0 / 6</span></div>
+            <div class="stat"><span>RENDER ENGINE</span> <span class="value">ACES_FILMIC</span></div>
+            <div class="stat"><span>ESTADO QA/QC</span> <span id="val-status" class="value" style="color: #00FF00;">STANDBY</span></div>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, clock, phases = [];
+        let currentPhaseIndex = 0;
+
+        init();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x020617);
+            
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.set(150, 100, 250);
+            camera.lookAt(0, 40, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+            sun.position.set(100, 200, 100);
+            sun.castShadow = true;
+            sun.shadow.mapSize.width = 2048;
+            scene.add(sun);
+
+            createProceduralMill();
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            document.getElementById('btn-next').addEventListener('click', () => {
+                if (currentPhaseIndex >= phases.length - 1) return;
+                currentPhaseIndex++;
+                const group = phases[currentPhaseIndex];
+                group.visible = true;
+                gsap.to(group.position, {
+                    y: 0, duration: 2.5, ease: "power2.inOut",
+                    onStart: () => { document.getElementById('val-status').innerText = "EN_MANIOBRA"; document.getElementById('val-status').style.color = "#FFA500"; },
+                    onComplete: () => { document.getElementById('val-status').innerText = "APROBADO"; document.getElementById('val-status').style.color = "#00FF00"; }
+                });
+                document.getElementById('val-phase').innerText = `${currentPhaseIndex + 1} / 6`;
+            });
+
+            animate();
+        }
+
+        function createProceduralMill() {
+            const steel = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.4 });
+            const concrete = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 });
+            const gold = new THREE.MeshStandardMaterial({ color: 0xDAA520, metalness: 1, roughness: 0.2 });
+
+            // Fases
+            for(let i=0; i<6; i++) {
+                const g = new THREE.Group();
+                g.position.y = 50; g.visible = i === 0;
+                if(i === 0) g.position.y = 0;
+                phases.push(g);
+                scene.add(g);
+            }
+
+            // Phase 0: Pedestales
+            const p1 = new THREE.Mesh(new THREE.BoxGeometry(40, 30, 60), concrete);
+            p1.position.set(-60, 15, 0); p1.castShadow = true;
+            const p2 = p1.clone(); p2.position.x = 60;
+            phases[0].add(p1, p2);
+
+            // Phase 3: Shell
+            const shell = new THREE.Mesh(new THREE.CylinderGeometry(35, 35, 100, 32), steel);
+            shell.rotation.z = Math.PI/2; shell.position.y = 65;
+            phases[3].add(shell);
+
+            // Phase 4: Corona
+            const corona = new THREE.Mesh(new THREE.TorusGeometry(38, 4, 16, 100), gold);
+            corona.rotation.y = Math.PI/2; corona.position.y = 65;
+            phases[4].add(corona);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

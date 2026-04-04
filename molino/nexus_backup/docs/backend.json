@@ -1,0 +1,81 @@
+
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "type": "object",
+      "description": "Represents an individual user profile.",
+      "properties": {
+        "id": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "role": { "type": "string", "enum": ["ENGINEER", "SUPERVISOR_QA", "CLIENTE", "ROOT_MONITOR"] },
+        "specialty": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "displayName", "email"]
+    },
+    "QAInspection": {
+      "title": "QAInspection",
+      "type": "object",
+      "description": "Metso Standard Soleplate Leveling QA/QC Form.",
+      "properties": {
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "protocolo_id": { "type": "string", "default": "QA-MEC-METSO-001" },
+            "proyecto": { "type": "string" },
+            "equipo": { "type": "string", "default": "Molino de Bolas Metso" },
+            "componente": { "type": "string", "default": "Placas de Asiento / Soleplates" },
+            "inspector_id": { "type": "string" },
+            "inspector_name": { "type": "string" },
+            "fecha_inspeccion": { "type": "string", "format": "date-time" },
+            "estado_liberacion": { "type": "string", "enum": ["Borrador", "En Proceso", "Rechazado", "Aprobado"] }
+          }
+        },
+        "fases": {
+          "type": "object",
+          "properties": {
+            "fase1": { "type": "array", "items": { "$ref": "#/backend/entities/InspectionItem" } },
+            "fase2": { "type": "array", "items": { "$ref": "#/backend/entities/InspectionItem" } },
+            "fase3": { "type": "array", "items": { "$ref": "#/backend/entities/InspectionItem" } },
+            "fase4": { "type": "array", "items": { "$ref": "#/backend/entities/InspectionItem" } }
+          }
+        },
+        "signatures": {
+          "type": "object",
+          "description": "Hold point validation signatures."
+        }
+      }
+    },
+    "InspectionItem": {
+      "title": "InspectionItem",
+      "type": "object",
+      "properties": {
+        "item_id": { "type": "string" },
+        "descripcion": { "type": "string" },
+        "tipo_respuesta": { "type": "string", "enum": ["checkbox_boolean", "input_numerico", "firma_hold_point"] },
+        "valor": { "type": "number" },
+        "cumple": { "type": "boolean" },
+        "evidencia_foto_url": { "type": "array", "items": { "type": "string" } },
+        "observaciones": { "type": "string" },
+        "is_hold_point": { "type": "boolean" },
+        "signed_by": { "type": "string" }
+      }
+    }
+  },
+  "auth": {
+    "providers": ["password"]
+  },
+  "firestore": {
+    "inspecciones_qa": {
+      "schema": { "$ref": "#/backend/entities/QAInspection" },
+      "description": "QA/QC Soleplate Inspections."
+    },
+    "users": {
+      "schema": { "$ref": "#/backend/entities/User" },
+      "description": "User profiles and roles."
+    }
+  }
+}

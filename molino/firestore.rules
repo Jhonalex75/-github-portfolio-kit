@@ -1,0 +1,204 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isRoot() {
+      return request.auth != null && (
+        request.auth.uid == "R3MVwE12nVMg128Kv6bdwJ6MKav1" ||
+        request.auth.uid == "Ew4plK83Z9O6c8J1dM3F0tP04A83" ||
+        request.auth.token.email == "jhonalexanderv@gmail.com" ||
+        request.auth.token.email == "jhonalexandervm@outlook.com"
+      );
+    }
+
+    // ── Usuarios ─────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || isRoot());
+      allow delete: if isRoot();
+
+      match /preferences/{doc=**} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    // ── Proyectos ─────────────────────────────────────────────────────────────
+    match /projects/{projectId} {
+      allow read, write: if isSignedIn();
+
+      // Reportes Diarios (Daily Reports)
+      match /daily_reports/{reportId} {
+        allow read:   if isSignedIn();
+        allow create: if isSignedIn();
+        allow update: if isSignedIn();
+        allow delete: if isRoot();
+      }
+
+      // Diseños
+      match /designs/{designId} {
+        allow read, write: if isSignedIn();
+      }
+
+      // Simulaciones
+      match /simulations/{simId} {
+        allow read, write: if isSignedIn();
+      }
+
+      // Reportes generales
+      match /reports/{reportId} {
+        allow read, write: if isSignedIn();
+      }
+
+      // Assets
+      match /assets/{assetId} {
+        allow read, write: if isSignedIn();
+      }
+
+      // PDT Schedule (subcolección usada por /pdt-schedule → projects/.../pdt_activities)
+      match /pdt_activities/{activityId} {
+        allow read:   if isSignedIn();
+        allow create: if isSignedIn();
+        allow update: if isSignedIn();
+        allow delete: if isRoot();
+      }
+
+      // Hoja de Vida de Equipos (Equipment Records)
+      match /equipment_records/{tag} {
+        allow read:   if isSignedIn();
+        allow create: if isSignedIn();
+        allow update: if isSignedIn();
+        allow delete: if isRoot();
+
+        match /assembly_activities/{activityId} {
+          allow read:   if isSignedIn();
+          allow create: if isSignedIn();
+          allow update: if isSignedIn();
+          allow delete: if isRoot();
+        }
+      }
+    }
+
+    // ── Chat / Mensajería ────────────────────────────────────────────────────
+    match /conversations/{convId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+
+      match /messages/{msgId} {
+        allow read, create, update: if isSignedIn();
+        allow delete: if isRoot();
+      }
+    }
+
+    match /messages/{msgId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── Calidad — No Conformidades ───────────────────────────────────────────
+    match /quality_ncs/{ncId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── Inspecciones QA/QC ────────────────────────────────────────────────────
+    match /inspecciones_qa/{insId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    match /qa_inspections/{insId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── Bitácora / Logs ───────────────────────────────────────────────────────
+    match /logs/{logId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    match /bitacora/{entryId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── PDT / Cronograma ──────────────────────────────────────────────────────
+    match /pdt_schedules/{docId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── Inventario / Equipos ──────────────────────────────────────────────────
+    match /equipment/{eqId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+
+      match /activities/{actId} {
+        allow read, create, update: if isSignedIn();
+        allow delete: if isRoot();
+      }
+    }
+
+    match /inventory/{itemId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── Actividades de Equipos ────────────────────────────────────────────────
+    match /equipment_activities/{actId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── Notificaciones ────────────────────────────────────────────────────────
+    match /notifications/{notifId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── Design Review ─────────────────────────────────────────────────────────
+    match /design_reviews/{reviewId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── Configuraciones globales ──────────────────────────────────────────────
+    match /settings/{settingId} {
+      allow read:         if isSignedIn();
+      allow write:        if isRoot();
+    }
+
+    // ── PROJECT DATA — Bóveda Documental Técnica ─────────────────────────────
+    match /project_data/{docId} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isRoot();
+
+      // Trazabilidad / Audit logs
+      match /logs/{logId} {
+        allow read:   if isSignedIn();
+        allow create: if isSignedIn();
+      }
+    }
+
+    // ── Non-conformities ──────────────────────────────────────────────────────
+    match /non_conformities/{ncId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isRoot();
+    }
+
+    // ── DENEGAR TODO LO DEMÁS ────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

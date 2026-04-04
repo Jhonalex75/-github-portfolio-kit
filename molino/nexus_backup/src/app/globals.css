@@ -1,0 +1,103 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&family=Space+Grotesk:wght@500;700&family=Source+Code+Pro:wght@400;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 4%;
+    --foreground: 180 100% 90%;
+    --card: 222 47% 6%;
+    --card-foreground: 180 100% 90%;
+    --popover: 222 47% 4%;
+    --popover-foreground: 180 100% 90%;
+    --primary: 180 100% 50%;
+    --primary-foreground: 222 47% 4%;
+    --secondary: 222 47% 8%;
+    --secondary-foreground: 180 100% 90%;
+    --muted: 222 47% 12%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 226 100% 60%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 180 100% 50% / 0.15;
+    --input: 222 47% 12%;
+    --ring: 180 100% 50%;
+    --radius: 0.25rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-body antialiased selection:bg-primary/30;
+    background-image: 
+      radial-gradient(circle at 50% 50%, #0a192f 0%, #020617 100%),
+      linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+    background-size: 100% 100%, 30px 30px, 30px 30px;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-headline tracking-tighter uppercase;
+  }
+}
+
+/* Arwes-inspired Corner Brackets */
+.corner-card {
+  @apply relative border border-primary/20 bg-primary/5 p-5 backdrop-blur-md;
+  clip-path: polygon(
+    0 0, 100% 0, 100% 100%, 0 100%
+  );
+}
+
+.corner-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; width: 15px; height: 15px;
+  border-top: 2px solid hsl(var(--primary));
+  border-left: 2px solid hsl(var(--primary));
+}
+
+.corner-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0; right: 0; width: 15px; height: 15px;
+  border-bottom: 2px solid hsl(var(--primary));
+  border-right: 2px solid hsl(var(--primary));
+}
+
+.glow-cyan {
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
+}
+
+.glow-amber {
+  text-shadow: 0 0 15px rgba(245, 158, 11, 0.7);
+}
+
+.glow-border {
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.1);
+}
+
+.font-display { font-family: 'Orbitron', sans-serif; }
+.font-mono-tech { font-family: 'Share Tech Mono', monospace; }
+
+@keyframes loading-progress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+.animate-loading {
+  animation: loading-progress 1.5s ease forwards;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

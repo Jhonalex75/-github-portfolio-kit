@@ -1,0 +1,4 @@
+﻿
+> nexus@0.2.0 lint
+> next lint --fix
+

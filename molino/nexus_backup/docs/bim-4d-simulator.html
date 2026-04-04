@@ -1,0 +1,250 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus BIM 4D | SAG Mill Assembly Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.173.0/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.173.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <style>
+        body { margin: 0; background: #020617; font-family: 'Orbitron', sans-serif; color: #00E5FF; overflow: hidden; }
+        #container { width: 100vw; height: 100vh; }
+        
+        #ui-panel {
+            position: absolute; top: 40px; left: 40px; width: 350px;
+            background: rgba(2, 6, 23, 0.85); border: 1px solid rgba(0, 229, 255, 0.2);
+            padding: 30px; backdrop-blur: 10px; border-left: 4px solid #00E5FF;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 { font-size: 18px; margin: 0 0 10px 0; letter-spacing: 2px; text-transform: uppercase; }
+        p { font-size: 10px; color: rgba(0, 229, 255, 0.6); margin-bottom: 30px; text-transform: uppercase; }
+
+        .btn-maniobra {
+            width: 100%; padding: 15px; background: #FF4500; color: white;
+            border: none; cursor: pointer; font-family: 'Orbitron', sans-serif;
+            font-size: 11px; font-weight: 900; text-transform: uppercase;
+            letter-spacing: 2px; transition: all 0.3s;
+            box-shadow: 0 0 20px rgba(255, 69, 0, 0.3);
+        }
+
+        .btn-maniobra:hover { background: #FF6347; transform: translateY(-2px); box-shadow: 0 0 30px rgba(255, 69, 0, 0.5); }
+        .btn-maniobra:disabled { background: #333; color: #666; cursor: not-allowed; box-shadow: none; }
+
+        #telemetry { margin-top: 30px; border-top: 1px solid rgba(0, 229, 255, 0.1); pt: 20px; }
+        .stat { display: flex; justify-content: space-between; font-size: 9px; margin-bottom: 8px; }
+        .value { color: #fff; font-weight: bold; }
+
+        #loading-screen {
+            position: fixed; inset: 0; background: #020617; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .loader { width: 200px; height: 2px; background: rgba(255,255,255,0.1); margin-top: 20px; overflow: hidden; }
+        .loader-bar { width: 0%; height: 100%; background: #00E5FF; }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="loading-screen">
+        <div style="font-weight: 900; letter-spacing: 5px;">NEXUS_BIM_CORE</div>
+        <div class="loader"><div id="loader-bar" class="loader-bar"></div></div>
+    </div>
+
+    <div id="container"></div>
+
+    <div id="ui-panel">
+        <h1>Control de Montaje</h1>
+        <p>Molino SAG | Metso IOM C.4817</p>
+        
+        <button id="btn-next" class="btn-maniobra">Ejecutar Siguiente Maniobra</button>
+
+        <div id="telemetry">
+            <div style="font-size: 8px; margin: 20px 0 10px 0; opacity: 0.5;">TELEMETRÍA EN TIEMPO REAL</div>
+            <div class="stat"><span>FASE ACTUAL</span> <span id="val-phase" class="value">0 / 6</span></div>
+            <div class="stat"><span>STATUS MOTOR</span> <span class="value" style="color: #00FF00;">ONLINE</span></div>
+            <div class="stat"><span>SHADOW_MAP</span> <span class="value">PCF_SOFT</span></div>
+            <div class="stat"><span>TONE_MAPPING</span> <span class="value">ACES_FILMIC</span></div>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, clock;
+        let phases = [];
+        let currentPhaseIndex = 0;
+        const MODEL_URL = ''; // PEGAR URL AQUÍ
+
+        init();
+
+        function init() {
+            // 1. Escena & Camera
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x020617);
+            
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(100, 60, 150);
+            camera.lookAt(0, 15, 0);
+
+            // 2. Renderer Fotorrealista
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            
+            // Fotorrealismo: ACES Filmic Tone Mapping
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            
+            // Sombras Suaves
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            // 3. Iluminación Industrial
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const mainLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            mainLight.position.set(50, 100, 50);
+            mainLight.castShadow = true;
+            mainLight.shadow.mapSize.width = 2048;
+            mainLight.shadow.mapSize.height = 2048;
+            scene.add(mainLight);
+
+            const rimLight = new THREE.PointLight(0x00E5FF, 1);
+            rimLight.position.set(-50, 50, -50);
+            scene.add(rimLight);
+
+            // 4. Modelado Procedural (Si no hay URL)
+            createProceduralMill();
+
+            // 5. Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            document.getElementById('btn-next').addEventListener('click', executeNextManiobra);
+
+            animate();
+            
+            // Simular carga
+            setTimeout(() => {
+                document.getElementById('loading-screen').style.display = 'none';
+            }, 1500);
+        }
+
+        function createProceduralMill() {
+            // Lote 0: Pedestales
+            const lote0 = new THREE.Group();
+            const concreteMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.8 });
+            const p1 = new THREE.Mesh(new THREE.BoxGeometry(20, 15, 25), concreteMat);
+            p1.position.set(-35, 7.5, 0); p1.castShadow = p1.receiveShadow = true;
+            const p2 = p1.clone(); p2.position.x = 35;
+            lote0.add(p1, p2);
+            lote0.userData.originalY = 0;
+            scene.add(lote0);
+            phases.push(lote0);
+
+            // Lote 1: Placas Base
+            const lote1 = new THREE.Group();
+            const plateMat = new THREE.MeshStandardMaterial({ color: 0x00FFFF, metalness: 0.8, roughness: 0.2 });
+            const pl1 = new THREE.Mesh(new THREE.BoxGeometry(15, 1, 20), plateMat);
+            pl1.position.set(-35, 15.5, 0); pl1.castShadow = pl1.receiveShadow = true;
+            const pl2 = pl1.clone(); pl2.position.x = 35;
+            lote1.add(pl1, pl2);
+            lote1.userData.originalY = 0;
+            lote1.position.y = 50; lote1.visible = false;
+            scene.add(lote1);
+            phases.push(lote1);
+
+            // Lote 2: Chumaceras
+            const lote2 = new THREE.Group();
+            const bearingMat = new THREE.MeshStandardMaterial({ color: 0x8A2BE2, metalness: 0.7, roughness: 0.4 });
+            const b1 = new THREE.Mesh(new THREE.BoxGeometry(12, 8, 15), bearingMat);
+            b1.position.set(-35, 20, 0); b1.castShadow = b1.receiveShadow = true;
+            const b2 = b1.clone(); b2.position.x = 35;
+            lote2.add(b1, b2);
+            lote2.userData.originalY = 0;
+            lote2.position.y = 50; lote2.visible = false;
+            scene.add(lote2);
+            phases.push(lote2);
+
+            // Lote 3: Cuerpo Molino
+            const lote3 = new THREE.Group();
+            const shellMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9, roughness: 0.3 });
+            const shell = new THREE.Mesh(new THREE.CylinderGeometry(15, 15, 50, 64), shellMat);
+            shell.rotation.z = Math.PI / 2;
+            shell.position.y = 25; shell.castShadow = shell.receiveShadow = true;
+            lote3.add(shell);
+            lote3.userData.originalY = 0;
+            lote3.position.y = 50; lote3.visible = false;
+            scene.add(lote3);
+            phases.push(lote3);
+
+            // Lote 4: Corona
+            const lote4 = new THREE.Group();
+            const gear = new THREE.Mesh(new THREE.TorusGeometry(16, 2, 16, 100), new THREE.MeshStandardMaterial({ color: 0xDAA520, metalness: 1, roughness: 0.2 }));
+            gear.rotation.y = Math.PI/2; gear.position.y = 25; gear.castShadow = gear.receiveShadow = true;
+            lote4.add(gear);
+            lote4.userData.originalY = 0;
+            lote4.position.y = 50; lote4.visible = false;
+            scene.add(lote4);
+            phases.push(lote4);
+
+            // Lote 5: Tren Potencia
+            const lote5 = new THREE.Group();
+            const driveMat = new THREE.MeshStandardMaterial({ color: 0x32CD32, metalness: 0.8, roughness: 0.4 });
+            const motor = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 15), driveMat);
+            motor.position.set(0, 15, 45); motor.castShadow = motor.receiveShadow = true;
+            lote5.add(motor);
+            lote5.userData.originalY = 0;
+            lote5.position.y = 50; lote5.visible = false;
+            scene.add(lote5);
+            phases.push(lote5);
+        }
+
+        function executeNextManiobra() {
+            if (currentPhaseIndex >= phases.length - 1) return;
+            
+            currentPhaseIndex++;
+            const group = phases[currentPhaseIndex];
+            group.visible = true;
+
+            // Animación GSAP: Descenso desde Y+50
+            gsap.to(group.position, {
+                y: group.userData.originalY,
+                duration: 3,
+                ease: "power2.inOut",
+                onUpdate: () => {
+                    // Efecto de brillo durante movimiento
+                    group.traverse(child => {
+                        if (child.isMesh) {
+                            child.material.emissive = new THREE.Color(0x00E5FF);
+                            child.material.emissiveIntensity = 0.5 * (1 - (group.position.y / 50));
+                        }
+                    });
+                },
+                onComplete: () => {
+                    group.traverse(child => { if (child.isMesh) child.material.emissiveIntensity = 0; });
+                }
+            });
+
+            document.getElementById('val-phase').innerText = `${currentPhaseIndex + 1} / 6`;
+            if (currentPhaseIndex === phases.length - 1) {
+                document.getElementById('btn-next').disabled = true;
+                document.getElementById('btn-next').innerText = "Montaje Completado";
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

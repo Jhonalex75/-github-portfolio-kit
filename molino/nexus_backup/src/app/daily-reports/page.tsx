@@ -30,6 +30,8 @@ import {
   HardHat, AlertCircle, BookOpen,
 } from 'lucide-react';
 import { generateDailyReportExcel, DailyReportData } from '@/lib/excel-generator';
+import { MonthlyDashboard } from '@/components/daily-reports/MonthlyDashboard';
+import { ContractorActivityDashboard } from '@/components/daily-reports/ContractorActivityDashboard';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const ROOT_UIDS = ['R3MVwE12nVMg128Kv6bdwJ6MKav1', 'Ew4plK83Z9O6c8J1dM3F0tP04A83'];
@@ -85,9 +87,10 @@ function compressImage(file: File, maxPx = 1200, quality = 0.75): Promise<string
 
 const DEFAULT_ADMIN_ACTIVITIES = [
   { name: 'Revisión de procedimientos de montaje',     progress: 0 },
-  { name: 'Reunión con ingeniería',                    progress: 0 },
+  { name: 'Revisión de ingeniería',                    progress: 0 },
   { name: 'Reunión con vendors / proveedores',         progress: 0 },
-  { name: 'Revisión de planos y documentación técnica', progress: 0 },
+  { name: 'Revisión con logística',                    progress: 0 },
+  { name: 'Importación de equipos',                    progress: 0 },
   { name: 'Informes y reportes al cliente',            progress: 0 },
   { name: 'Gestión de no conformidades (SGC)',         progress: 0 },
 ];
@@ -99,7 +102,32 @@ interface ChecklistHSE { workAtHeights: boolean; hotWork: boolean; confinedSpace
 interface Recurso      { type: string; count: number }
 interface Evidence     { type: 'photo' | 'pdf'; urlOrBase64: string; name: string; uploadMethod: 'base64' | 'storage' }
 
-interface Contractor    { name: string; personnel: number }
+interface ContractorPersonnel {
+  mecanicos:   number;
+  soldadores:  number;
+  auxiliares:  number;
+  armadores:   number;
+}
+interface ContractorEquipment {
+  grua:          number;   // unidades
+  generador:     number;
+  andamios:      number;   // m³
+  camionGrua:    number;
+  torreGrua:     number;
+  equipoEspecial: string;  // descripción libre
+}
+interface ContractorLostHours {
+  malClima:      number;
+  parosHSE:      number;
+  fallasTecnicas: number;
+}
+interface Contractor {
+  name:       string;
+  personnel:  number;   // total (suma de breakdown)
+  breakdown:  ContractorPersonnel;
+  equipment:  ContractorEquipment;
+  lostHours:  ContractorLostHours;
+}
 interface AdminActivity { name: string; progress: number }   // 0-100 %
 interface SafetyInfo    {
   comments:       string;
@@ -110,6 +138,25 @@ interface SafetyInfo    {
 }
 
 const EMPTY_SAFETY: SafetyInfo = { comments: '', incidents: 0, nearMisses: 0, eppObservations: '', lessonsLearned: '' };
+
+const EMPTY_CONTRACTOR = (): Contractor => ({
+  name:      '',
+  personnel: 0,
+  breakdown: { mecanicos: 0, soldadores: 0, auxiliares: 0, armadores: 0 },
+  equipment: { grua: 0, generador: 0, andamios: 0, camionGrua: 0, torreGrua: 0, equipoEspecial: '' },
+  lostHours: { malClima: 0, parosHSE: 0, fallasTecnicas: 0 },
+});
+
+/** Migra un contractor legacy (solo name+personnel) al nuevo esquema */
+function migrateContractor(c: Partial<Contractor>): Contractor {
+  const full = EMPTY_CONTRACTOR();
+  full.name      = c.name      ?? '';
+  full.personnel = c.personnel ?? 0;
+  if (c.breakdown)  full.breakdown  = { ...full.breakdown,  ...c.breakdown };
+  if (c.equipment)  full.equipment  = { ...full.equipment,  ...c.equipment };
+  if (c.lostHours)  full.lostHours  = { ...full.lostHours,  ...c.lostHours };
+  return full;
+}
 
 interface ReportDoc {
   id: string;
@@ -151,7 +198,7 @@ export default function DailyReportsPage() {
   const [checklist,       setChecklist]       = useState<ChecklistHSE>({ workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false });
   const [evidence,        setEvidence]        = useState<Evidence[]>([]);
   // ── New extended state ──
-  const [contractors,     setContractors]     = useState<Contractor[]>([{ name: '', personnel: 0 }]);
+  const [contractors,     setContractors]     = useState<Contractor[]>([EMPTY_CONTRACTOR()]);
   const [safetyInfo,      setSafetyInfo]      = useState<SafetyInfo>({ ...EMPTY_SAFETY });
   const [adminActivities, setAdminActivities] = useState<AdminActivity[]>(
     DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a }))
@@ -286,7 +333,7 @@ export default function DailyReportsPage() {
     setCustomFrente(''); setWeather('Soleado ☀️');
     setRecursos([...DEFAULT_RECURSOS]);
     setChecklist({ workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false });
-    setContractors([{ name: '', personnel: 0 }]);
+    setContractors([EMPTY_CONTRACTOR()]);
     setSafetyInfo({ ...EMPTY_SAFETY });
     setAdminActivities(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
     setEditing(null); setTab('meta');
@@ -382,7 +429,9 @@ export default function DailyReportsPage() {
       scaffolding:   r.seguridad_hse?.scaffolding   || false,
     });
     setEvidence(r.evidence || []);
-    setContractors(r.contractors?.length ? r.contractors : [{ name: '', personnel: 0 }]);
+    setContractors(r.contractors?.length
+      ? (r.contractors as Partial<Contractor>[]).map(migrateContractor)
+      : [EMPTY_CONTRACTOR()]);
     setSafetyInfo(r.safety_info ? { ...r.safety_info } : { ...EMPTY_SAFETY });
     setAdminActivities(r.admin_activities?.length
       ? r.admin_activities.map(a => ({ ...a }))
@@ -706,68 +755,196 @@ export default function DailyReportsPage() {
 
                 {/* ── TAB: CONTRATISTAS ── */}
                 {tab === 'contratistas' && (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest">Contratistas en Campo</Label>
                       <Button
                         variant="ghost" size="sm"
-                        onClick={() => setContractors(p => [...p, { name: '', personnel: 0 }])}
+                        onClick={() => setContractors(p => [...p, EMPTY_CONTRACTOR()])}
                         className="h-6 px-2 text-[10px] bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 font-mono"
                       >
                         <Plus className="w-3 h-3 mr-1" />Agregar
                       </Button>
                     </div>
 
-                    <div className="space-y-2">
-                      {contractors.map((c, i) => (
-                        <div key={i} className="flex items-center gap-2 group">
-                          <div className="flex-1 flex items-center gap-1.5 bg-primary/5 border border-primary/10 rounded px-2.5 py-1.5">
-                            <Building2 className="w-3 h-3 text-amber-400/60 flex-shrink-0" />
-                            <input
-                              value={c.name}
-                              onChange={e => { const n = [...contractors]; n[i] = { ...n[i], name: e.target.value }; setContractors(n); }}
-                              placeholder="Nombre empresa contratista..."
-                              className="flex-1 bg-transparent text-[11px] font-mono text-primary/80 placeholder-primary/25 outline-none"
-                            />
+                    <div className="space-y-4">
+                      {contractors.map((c, i) => {
+                        const bkTotal = c.breakdown.mecanicos + c.breakdown.soldadores + c.breakdown.auxiliares + c.breakdown.armadores;
+                        const totalLost = c.lostHours.malClima + c.lostHours.parosHSE + c.lostHours.fallasTecnicas;
+                        return (
+                          <div key={i} className="border border-amber-500/20 rounded-xl bg-primary/[0.03] overflow-hidden">
+                            {/* Contractor header */}
+                            <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/5 border-b border-amber-500/10">
+                              <Building2 className="w-3.5 h-3.5 text-amber-400/70 flex-shrink-0" />
+                              <input
+                                value={c.name}
+                                onChange={e => {
+                                  const n = [...contractors]; n[i] = { ...n[i], name: e.target.value }; setContractors(n);
+                                }}
+                                placeholder="Nombre empresa contratista..."
+                                className="flex-1 bg-transparent text-[11px] font-mono font-bold text-amber-300 placeholder-amber-500/30 outline-none"
+                              />
+                              <button
+                                onClick={() => setContractors(p => p.filter((_, j) => j !== i))}
+                                className="text-red-500/40 hover:text-red-500 transition-colors ml-1"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            <div className="p-3 space-y-3">
+                              {/* Personal breakdown */}
+                              <div>
+                                <p className="text-[9px] font-mono text-cyan-500/50 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                                  <Users className="w-3 h-3" /> Personal por Especialidad
+                                </p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {([
+                                    ['mecanicos',  'Mecánicos'],
+                                    ['soldadores', 'Soldadores'],
+                                    ['auxiliares', 'Auxiliares'],
+                                    ['armadores',  'Armadores'],
+                                  ] as [keyof ContractorPersonnel, string][]).map(([field, label]) => (
+                                    <div key={field} className="flex items-center gap-1.5 bg-primary/5 border border-primary/10 rounded px-2 py-1">
+                                      <span className="text-[9px] font-mono text-primary/50 flex-1">{label}</span>
+                                      <input
+                                        type="number" min="0"
+                                        value={c.breakdown[field]}
+                                        onChange={e => {
+                                          const n = [...contractors];
+                                          const val = Math.max(0, parseInt(e.target.value) || 0);
+                                          n[i] = { ...n[i], breakdown: { ...n[i].breakdown, [field]: val } };
+                                          const bd = n[i].breakdown;
+                                          n[i].personnel = bd.mecanicos + bd.soldadores + bd.auxiliares + bd.armadores;
+                                          setContractors(n);
+                                        }}
+                                        className="w-10 bg-transparent text-[11px] font-mono text-cyan-400 text-center outline-none"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="mt-1.5 flex justify-between items-center px-1">
+                                  <span className="text-[9px] font-mono text-primary/40">Total personal</span>
+                                  <span className="text-[11px] font-bold font-mono text-amber-400">{bkTotal} pers.</span>
+                                </div>
+                              </div>
+
+                              {/* Equipment */}
+                              <div>
+                                <p className="text-[9px] font-mono text-cyan-500/50 uppercase tracking-wider mb-1.5">⚙️ Equipos en Campo</p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {([
+                                    ['grua',       'Grúa (und)'],
+                                    ['generador',  'Generador (und)'],
+                                    ['andamios',   'Andamios (m³)'],
+                                    ['camionGrua', 'Camión Grúa (und)'],
+                                    ['torreGrua',  'Torre Grúa (und)'],
+                                  ] as [keyof ContractorEquipment, string][]).filter(([f]) => f !== 'equipoEspecial').map(([field, label]) => (
+                                    <div key={field} className="flex items-center gap-1.5 bg-primary/5 border border-primary/10 rounded px-2 py-1">
+                                      <span className="text-[9px] font-mono text-primary/50 flex-1">{label}</span>
+                                      <input
+                                        type="number" min="0"
+                                        value={c.equipment[field as Exclude<keyof ContractorEquipment, 'equipoEspecial'>] as number}
+                                        onChange={e => {
+                                          const n = [...contractors];
+                                          n[i] = { ...n[i], equipment: { ...n[i].equipment, [field]: Math.max(0, parseInt(e.target.value) || 0) } };
+                                          setContractors(n);
+                                        }}
+                                        className="w-10 bg-transparent text-[11px] font-mono text-emerald-400 text-center outline-none"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="mt-1.5 flex items-center gap-1.5 bg-primary/5 border border-primary/10 rounded px-2 py-1">
+                                  <span className="text-[9px] font-mono text-primary/50 w-28">Equipo Especial</span>
+                                  <input
+                                    value={c.equipment.equipoEspecial}
+                                    onChange={e => {
+                                      const n = [...contractors];
+                                      n[i] = { ...n[i], equipment: { ...n[i].equipment, equipoEspecial: e.target.value } };
+                                      setContractors(n);
+                                    }}
+                                    placeholder="Descripción..."
+                                    className="flex-1 bg-transparent text-[11px] font-mono text-emerald-400 placeholder-primary/20 outline-none"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Lost hours */}
+                              <div>
+                                <p className="text-[9px] font-mono text-red-400/60 uppercase tracking-wider mb-1.5">⏱ Horas Perdidas</p>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  {([
+                                    ['malClima',       'Mal Clima', 'text-blue-400'],
+                                    ['parosHSE',       'Paros HSE', 'text-amber-400'],
+                                    ['fallasTecnicas', 'Falla Téc.', 'text-red-400'],
+                                  ] as [keyof ContractorLostHours, string, string][]).map(([field, label, color]) => (
+                                    <div key={field} className="bg-primary/5 border border-primary/10 rounded px-2 py-1.5 text-center">
+                                      <p className="text-[8px] font-mono text-primary/40 mb-1">{label}</p>
+                                      <div className="flex items-center justify-center gap-1">
+                                        <button
+                                          onClick={() => { const n=[...contractors]; n[i]={...n[i],lostHours:{...n[i].lostHours,[field]:Math.max(0,c.lostHours[field]-0.5)}}; setContractors(n); }}
+                                          className="w-4 h-4 rounded bg-primary/10 text-primary/50 text-[10px] font-bold hover:bg-primary/20"
+                                        >-</button>
+                                        <input
+                                          type="number" min="0" step="0.5"
+                                          value={c.lostHours[field]}
+                                          onChange={e => { const n=[...contractors]; n[i]={...n[i],lostHours:{...n[i].lostHours,[field]:Math.max(0,parseFloat(e.target.value)||0)}}; setContractors(n); }}
+                                          className={`w-8 bg-transparent text-[11px] font-mono font-bold ${color} text-center outline-none`}
+                                        />
+                                        <button
+                                          onClick={() => { const n=[...contractors]; n[i]={...n[i],lostHours:{...n[i].lostHours,[field]:c.lostHours[field]+0.5}}; setContractors(n); }}
+                                          className="w-4 h-4 rounded bg-primary/10 text-primary/50 text-[10px] font-bold hover:bg-primary/20"
+                                        >+</button>
+                                      </div>
+                                      <p className="text-[8px] font-mono text-primary/30 mt-0.5">hrs</p>
+                                    </div>
+                                  ))}
+                                </div>
+                                {totalLost > 0 && (
+                                  <p className="text-[9px] font-mono text-red-400/70 mt-1 text-right">
+                                    Total horas perdidas: <span className="font-bold text-red-400">{totalLost.toFixed(1)} h</span>
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5 w-20 bg-primary/5 border border-primary/10 rounded px-2 py-1.5">
-                            <Users className="w-3 h-3 text-cyan-400/60 flex-shrink-0" />
-                            <input
-                              type="number" min="0" value={c.personnel}
-                              onChange={e => { const n = [...contractors]; n[i] = { ...n[i], personnel: Math.max(0, parseInt(e.target.value) || 0) }; setContractors(n); }}
-                              className="w-10 bg-transparent text-[11px] font-mono text-cyan-400 text-center outline-none"
-                            />
-                          </div>
-                          <button
-                            onClick={() => setContractors(p => p.filter((_, j) => j !== i))}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500/50 hover:text-red-500 p-1"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {contractors.some(c => c.name) && (
-                      <div className="bg-amber-500/5 border border-amber-500/15 rounded p-2.5 space-y-1">
-                        <p className="text-[9px] font-mono text-amber-400/70 uppercase tracking-wider">ℹ️ Resumen de personal</p>
+                      <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg p-3 space-y-1.5">
+                        <p className="text-[9px] font-mono text-amber-400/70 uppercase tracking-wider">📊 Resumen Campo</p>
                         {contractors.filter(c => c.name).map((c, i) => (
                           <div key={i} className="flex justify-between text-[9px] font-mono">
-                            <span className="text-primary/60 truncate max-w-[200px]">{c.name}</span>
+                            <span className="text-primary/60 truncate max-w-[180px]">{c.name}</span>
                             <span className="text-amber-400 font-bold">{c.personnel} pers.</span>
                           </div>
                         ))}
-                        <div className="border-t border-amber-500/20 pt-1 flex justify-between text-[9px] font-mono font-bold">
-                          <span className="text-primary/50">TOTAL CONTRATISTAS</span>
-                          <span className="text-amber-400">{contractors.reduce((s, c) => s + c.personnel, 0)} pers.</span>
-                        </div>
-                        <div className="flex justify-between text-[9px] font-mono">
-                          <span className="text-primary/50">+ Personal Directo</span>
-                          <span className="text-cyan-400">{recursos.reduce((s, r) => s + r.count, 0)} pers.</span>
-                        </div>
-                        <div className="bg-cyan-500/10 border border-cyan-500/20 rounded px-2 py-1 flex justify-between text-[9px] font-mono font-bold">
-                          <span className="text-cyan-300">GRAN TOTAL EN CAMPO</span>
-                          <span className="text-cyan-400 text-[11px]">{contractors.reduce((s, c) => s + c.personnel, 0) + recursos.reduce((s, r) => s + r.count, 0)} pers.</span>
+                        <div className="border-t border-amber-500/20 pt-1.5 space-y-0.5">
+                          <div className="flex justify-between text-[9px] font-mono font-bold">
+                            <span className="text-primary/50">TOTAL CONTRATISTAS</span>
+                            <span className="text-amber-400">{contractors.reduce((s, c) => s + c.personnel, 0)} pers.</span>
+                          </div>
+                          <div className="flex justify-between text-[9px] font-mono">
+                            <span className="text-primary/50">+ Personal Directo</span>
+                            <span className="text-cyan-400">{recursos.reduce((s, r) => s + r.count, 0)} pers.</span>
+                          </div>
+                          <div className="bg-cyan-500/10 border border-cyan-500/20 rounded px-2 py-1 flex justify-between text-[9px] font-mono font-bold">
+                            <span className="text-cyan-300">GRAN TOTAL EN CAMPO</span>
+                            <span className="text-cyan-400 text-[11px]">
+                              {contractors.reduce((s, c) => s + c.personnel, 0) + recursos.reduce((s, r) => s + r.count, 0)} pers.
+                            </span>
+                          </div>
+                          {contractors.some(c => c.lostHours.malClima + c.lostHours.parosHSE + c.lostHours.fallasTecnicas > 0) && (
+                            <div className="bg-red-500/5 border border-red-500/20 rounded px-2 py-1 flex justify-between text-[9px] font-mono">
+                              <span className="text-red-400/70">TOTAL HORAS PERDIDAS</span>
+                              <span className="text-red-400 font-bold">
+                                {contractors.reduce((s, c) => s + c.lostHours.malClima + c.lostHours.parosHSE + c.lostHours.fallasTecnicas, 0).toFixed(1)} h
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1045,6 +1222,14 @@ export default function DailyReportsPage() {
                   <p className="text-base font-bold text-cyan-400 font-mono leading-none">{reports?.length ?? 0}</p>
                 </div>
               </div>
+
+              {reports && reports.length > 0 && (
+                <MonthlyDashboard reports={reports} />
+              )}
+
+              {reports && reports.length > 0 && (
+                <ContractorActivityDashboard reports={reports} projectId={ACTIVE_PROJECT} />
+              )}
 
               {/* Report list */}
               <div className="space-y-3 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">

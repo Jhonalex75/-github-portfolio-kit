@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VISOR DIRECTO</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; background: #222; }
+        #info { position: absolute; top: 10px; left: 10px; color: yellow; font-family: Arial; z-index: 10; }
+    </style>
+</head>
+<body>
+    <div id="info">ESTADO: BUSCANDO ARCHIVO...</div>
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100000);
+        camera.position.set(100, 100, 100);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 1));
+        const sun = new THREE.DirectionalLight(0xffffff, 1);
+        sun.position.set(10, 10, 10);
+        scene.add(sun);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+        const loader = new THREE.GLTFLoader();
+        // USAMOS EL NOMBRE EXACTO DE TU ARCHIVO
+        loader.load('./M001-101_Sag Mill Assembly 3D Model_R1_InfoOnly.glb', 
+            (gltf) => {
+                scene.add(gltf.scene);
+                document.getElementById('info').innerHTML = "¡MOLINO DETECTADO!";
+                
+                // AUTO-ENFOQUE: Esto hace que la cámara busque el molino no importa el tamaño
+                const box = new THREE.Box3().setFromObject(gltf.scene);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                camera.position.set(center.x + maxDim, center.y + maxDim, center.z + maxDim);
+                controls.target.copy(center);
+                controls.update();
+            },
+            (xhr) => {
+                document.getElementById('info').innerHTML = "CARGANDO: " + Math.round(xhr.loaded/xhr.total*100) + "%";
+            },
+            (err) => {
+                document.getElementById('info').innerHTML = "ERROR: NO ENCUENTRO EL ARCHIVO .GLB";
+                console.error(err);
+            }
+        );
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
