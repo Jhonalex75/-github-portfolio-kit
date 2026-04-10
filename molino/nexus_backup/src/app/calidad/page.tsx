@@ -28,6 +28,7 @@ import {
   NC_ORIGIN_LABELS,
   OPERATIONAL_STATUS_LABELS, OPERATIONAL_STATUS_COLORS,
   type OperationalStatus, AssemblyActivity, NewActivityData,
+  type AssemblyStep, type PunchListItem,
 } from "@/lib/quality-types";
 
 // Top-level areas only for the area filter
@@ -306,7 +307,10 @@ export default function CalidadPage() {
   const { ncs, loading, fetchNcs, createNc, updateNcStatus, deleteNc } = useNonConformities();
   const {
     records, activities, loading: actLoading, uploadProgress,
+    assemblySteps, stepsLoading, punchList, punchLoading,
     fetchAllRecords, updateOperationalStatus, fetchActivities, addActivity, updateActivity, deleteActivity, uploadActivityPhoto,
+    fetchAssemblySteps, updateAssemblyStep, uploadStepPhoto,
+    fetchPunchList, addPunchItem, updatePunchItem,
   } = useEquipmentRecords();
 
   // Map of tag → activities (for dashboard stats — only populated ones)
@@ -336,8 +340,12 @@ export default function CalidadPage() {
   const handleOpenEquipCard = useCallback(async (eq: PlantEquipment) => {
     setSelectedEquipment(eq);
     setEquipCardOpen(true);
-    await fetchActivities(eq.tag);
-  }, [fetchActivities]);
+    await Promise.all([
+      fetchActivities(eq.tag),
+      fetchAssemblySteps(eq.tag),
+      fetchPunchList(eq.tag),
+    ]);
+  }, [fetchActivities, fetchAssemblySteps, fetchPunchList]);
 
   const handleCreateNcForEquip = useCallback(async (data: NCFormData): Promise<boolean> => {
     const res = await createNc(data);
@@ -827,6 +835,10 @@ export default function CalidadPage() {
           activitiesLoading={actLoading}
           uploadProgress={uploadProgress}
           ncs={ncs.filter(n => n.related_equipment === selectedEquipment.tag)}
+          assemblySteps={assemblySteps}
+          stepsLoading={stepsLoading}
+          punchList={punchList}
+          punchLoading={punchLoading}
           onUpdateStatus={updateOperationalStatus}
           onAddActivity={addActivity}
           onUpdateActivity={updateActivity}
@@ -834,6 +846,10 @@ export default function CalidadPage() {
           onUploadPhoto={uploadActivityPhoto}
           onCreateNc={handleCreateNcForEquip}
           onDeleteNc={deleteNc}
+          onUpdateStep={updateAssemblyStep}
+          onUploadStepPhoto={uploadStepPhoto}
+          onAddPunchItem={addPunchItem}
+          onUpdatePunchItem={updatePunchItem}
         />
       )}
 

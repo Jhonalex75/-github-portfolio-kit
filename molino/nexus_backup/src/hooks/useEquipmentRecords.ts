@@ -11,7 +11,9 @@ import {
   EquipmentRecord, AssemblyActivity,
   OperationalStatus, ActivityType, ActivityStatus,
   OPERATIONAL_STATUS_LABELS, NewActivityData,
+  AssemblyStep, PunchListItem, PunchDiscipline, PunchPriority, PunchStatus,
 } from "@/lib/quality-types";
+import { MILL_ASSEMBLY_PLANS } from "@/lib/mill-plant-data";
 
 const ACTIVE_PROJECT = 'default-nexus-project';
 
@@ -21,10 +23,14 @@ export function useEquipmentRecords() {
   const { user }    = useUser();
   const { toast }   = useToast();
 
-  const [records,       setRecords]       = useState<Record<string, EquipmentRecord>>({});
-  const [activities,    setActivities]    = useState<AssemblyActivity[]>([]);
-  const [loading,       setLoading]       = useState(false);
+  const [records,        setRecords]        = useState<Record<string, EquipmentRecord>>({});
+  const [activities,     setActivities]     = useState<AssemblyActivity[]>([]);
+  const [loading,        setLoading]        = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [assemblySteps,  setAssemblySteps]  = useState<AssemblyStep[]>([]);
+  const [stepsLoading,   setStepsLoading]   = useState(false);
+  const [punchList,      setPunchList]      = useState<PunchListItem[]>([]);
+  const [punchLoading,   setPunchLoading]   = useState(false);
 
   // ── Fetch all equipment records ─────────────────────────────────────────
   const fetchAllRecords = useCallback(async () => {
@@ -213,11 +219,203 @@ export function useEquipmentRecords() {
     [firestore, user, activities, toast],
   );
 
+  // ── Fetch assembly steps ────────────────────────────────────────────────
+  const fetchAssemblySteps = useCallback(async (tag: string) => {
+    if (!firestore) return;
+    setStepsLoading(true);
+    try {
+      const q = query(
+        collection(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag, "assembly_steps"),
+        orderBy("step_number", "asc"),
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        // Seed from static plan if Firebase is empty
+        const staticPlan = MILL_ASSEMBLY_PLANS[tag] ?? [];
+        if (staticPlan.length > 0) {
+          await setDoc(doc(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag), { tag }, { merge: true });
+          const seeded: AssemblyStep[] = [];
+          for (const s of staticPlan) {
+            const payload: Omit<AssemblyStep, "id"> = {
+              equipment_tag: tag,
+              step_number:   s.step_number,
+              title:         s.title,
+              description:   s.description,
+              weight_pct:    s.weight_pct,
+              status:        "pendiente",
+              iom_ref:       s.iom_ref,
+              proc_ref:      s.proc_ref,
+            };
+            const docRef = await addDoc(
+              collection(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag, "assembly_steps"),
+              payload,
+            );
+            seeded.push({ id: docRef.id, ...payload });
+          }
+          setAssemblySteps(seeded);
+          toast({ title: "PLAN INICIALIZADO", description: `${seeded.length} etapas cargadas para ${tag}.` });
+        } else {
+          setAssemblySteps([]);
+        }
+      } else {
+        setAssemblySteps(snap.docs.map(d => ({ id: d.id, ...d.data() } as AssemblyStep)));
+      }
+    } catch (err) {
+      console.error("useEquipmentRecords.fetchAssemblySteps:", err);
+      setAssemblySteps([]);
+    } finally {
+      setStepsLoading(false);
+    }
+  }, [firestore, toast]);
+
+  // ── Update single assembly step ─────────────────────────────────────────
+  const updateAssemblyStep = useCallback(
+    async (tag: string, stepId: string, data: Partial<AssemblyStep>): Promise<boolean> => {
+      if (!firestore || !user) return false;
+      try {
+        const stepRef = doc(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag, "assembly_steps", stepId);
+        const stepPayload = Object.fromEntries(
+          Object.entries({ ...data, updated_by: user.displayName || user.email || "Ingeniero", updated_at: new Date().toISOString() }).filter(([, v]) => v !== undefined),
+        );
+        await updateDoc(stepRef, stepPayload);
+        setAssemblySteps(prev => prev.map(s => s.id === stepId ? { ...s, ...data } : s));
+        toast({ title: "ETAPA ACTUALIZADA", description: `Etapa #${data.step_number ?? ""} guardada.` });
+        return true;
+      } catch (err) {
+        console.error("useEquipmentRecords.updateAssemblyStep:", err);
+        toast({ variant: "destructive", title: "ERROR", description: "No se pudo actualizar la etapa." });
+        return false;
+      }
+    },
+    [firestore, user, toast],
+  );
+
+  // ── Upload photo to an assembly step ────────────────────────────────────
+  const uploadStepPhoto = useCallback(
+    async (tag: string, stepId: string, file: File): Promise<string | null> => {
+      if (!firestore || !user) return null;
+      try {
+        setUploadProgress(0);
+        const storage     = getStorage(getApp());
+        const timestamp   = Date.now();
+        const safeName    = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const storagePath = `equipment_records/${tag}/steps/${stepId}/${timestamp}_${safeName}`;
+        const storageRef  = ref(storage, storagePath);
+        setUploadProgress(20);
+        const snapshot    = await uploadBytes(storageRef, file);
+        setUploadProgress(80);
+        const downloadUrl = await getDownloadURL(snapshot.ref);
+        setUploadProgress(100);
+        const stepRef = doc(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag, "assembly_steps", stepId);
+        const target  = assemblySteps.find(s => s.id === stepId);
+        const prevUrls  = target?.photo_urls  ?? [];
+        const prevPaths = target?.photo_paths ?? [];
+        await updateDoc(stepRef, { photo_urls: [...prevUrls, downloadUrl], photo_paths: [...prevPaths, storagePath] });
+        setAssemblySteps(prev => prev.map(s =>
+          s.id === stepId
+            ? { ...s, photo_urls: [...(s.photo_urls ?? []), downloadUrl], photo_paths: [...(s.photo_paths ?? []), storagePath] }
+            : s
+        ));
+        toast({ title: "FOTO ADJUNTADA", description: "Imagen cargada para la etapa." });
+        setUploadProgress(null);
+        return downloadUrl;
+      } catch (err) {
+        console.error("useEquipmentRecords.uploadStepPhoto:", err);
+        toast({ variant: "destructive", title: "ERROR", description: "No se pudo cargar la foto." });
+        setUploadProgress(null);
+        return null;
+      }
+    },
+    [firestore, user, assemblySteps, toast],
+  );
+
+  // ── Fetch punch list ────────────────────────────────────────────────────
+  const fetchPunchList = useCallback(async (tag: string) => {
+    if (!firestore) return;
+    setPunchLoading(true);
+    try {
+      const q = query(
+        collection(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag, "punch_list"),
+        orderBy("created_at", "desc"),
+      );
+      const snap = await getDocs(q);
+      setPunchList(snap.docs.map(d => ({ id: d.id, ...d.data() } as PunchListItem)));
+    } catch (err) {
+      console.error("useEquipmentRecords.fetchPunchList:", err);
+      setPunchList([]);
+    } finally {
+      setPunchLoading(false);
+    }
+  }, [firestore]);
+
+  // ── Add punch list item ─────────────────────────────────────────────────
+  const addPunchItem = useCallback(
+    async (tag: string, data: Omit<PunchListItem, "id" | "equipment_tag" | "created_at" | "created_by" | "created_by_uid">): Promise<string | null> => {
+      if (!firestore || !user) return null;
+      try {
+        await setDoc(doc(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag), { tag }, { merge: true });
+        const rawPayload: Omit<PunchListItem, "id"> = {
+          ...data,
+          equipment_tag:   tag,
+          created_by:      user.displayName || user.email || "Ingeniero",
+          created_by_uid:  user.uid,
+          created_at:      new Date().toISOString(),
+        };
+        // Firestore rejects undefined field values — strip them before writing
+        const payload = Object.fromEntries(
+          Object.entries(rawPayload).filter(([, v]) => v !== undefined),
+        ) as Omit<PunchListItem, "id">;
+        const docRef = await addDoc(
+          collection(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag, "punch_list"),
+          payload,
+        );
+        const newItem: PunchListItem = { id: docRef.id, ...payload };
+        setPunchList(prev => [newItem, ...prev]);
+        toast({ title: "PENDIENTE REGISTRADO", description: "Asunto agregado a la lista de pendientes." });
+        return docRef.id;
+      } catch (err: any) {
+        console.error("useEquipmentRecords.addPunchItem:", err);
+        toast({ variant: "destructive", title: "ERROR", description: err?.message || "No se pudo guardar el pendiente." });
+        return null;
+      }
+    },
+    [firestore, user, toast],
+  );
+
+  // ── Update punch list item ──────────────────────────────────────────────
+  const updatePunchItem = useCallback(
+    async (tag: string, itemId: string, data: Partial<PunchListItem>): Promise<boolean> => {
+      if (!firestore || !user) return false;
+      try {
+        const itemRef = doc(firestore, "projects", ACTIVE_PROJECT, "equipment_records", tag, "punch_list", itemId);
+        const extra = data.status === "cerrado" && !data.closed_at
+          ? { closed_at: new Date().toISOString(), closed_by: user.displayName || user.email || "Ingeniero" }
+          : {};
+        const updatePayload = Object.fromEntries(
+          Object.entries({ ...data, ...extra }).filter(([, v]) => v !== undefined),
+        );
+        await updateDoc(itemRef, updatePayload);
+        setPunchList(prev => prev.map(p => p.id === itemId ? { ...p, ...data, ...extra } : p));
+        toast({ title: "PENDIENTE ACTUALIZADO", description: "Estado del asunto actualizado." });
+        return true;
+      } catch (err) {
+        console.error("useEquipmentRecords.updatePunchItem:", err);
+        toast({ variant: "destructive", title: "ERROR", description: "No se pudo actualizar el pendiente." });
+        return false;
+      }
+    },
+    [firestore, user, toast],
+  );
+
   return {
     records,
     activities,
     loading,
     uploadProgress,
+    assemblySteps,
+    stepsLoading,
+    punchList,
+    punchLoading,
     fetchAllRecords,
     updateOperationalStatus,
     fetchActivities,
@@ -225,5 +423,11 @@ export function useEquipmentRecords() {
     updateActivity,
     deleteActivity,
     uploadActivityPhoto,
+    fetchAssemblySteps,
+    updateAssemblyStep,
+    uploadStepPhoto,
+    fetchPunchList,
+    addPunchItem,
+    updatePunchItem,
   };
 }
