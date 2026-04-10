@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marmato Mill Installation Manual</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <i class="fa-solid fa-gears logo-icon"></i>
+                <h2>Marmato Mills</h2>
+                <button class="close-btn" id="closeSidebar"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <ul class="nav-links">
+                <li class="nav-label">Installation Sequences</li>
+                <li class="nav-item active" data-target="sag-mill-view">
+                    <i class="fa-solid fa-circle-notch"></i> SAG Mill (2216)
+                </li>
+                <li class="nav-item" data-target="ball-mill-view">
+                    <i class="fa-solid fa-life-ring"></i> Ball Mill (1624)
+                </li>
+                
+                <li class="nav-label">Inventories & Fasteners</li>
+                <li class="nav-item" data-target="anchors-view">
+                    <i class="fa-solid fa-anchor"></i> Anchor Bolts
+                </li>
+                <li class="nav-item" data-target="general-fasteners-view">
+                    <i class="fa-solid fa-screwdriver-wrench"></i> General Fasteners
+                </li>
+            </ul>
+
+            <div class="sidebar-footer">
+                <p>TechEng Nexus</p>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-header">
+                <button class="menu-btn" id="openSidebar"><i class="fa-solid fa-bars"></i></button>
+                <h1 id="page-title">Secuencia de Instalación - Molino SAG 2216</h1>
+            </header>
+
+            <div class="content-wrapper">
+                
+                <!-- SAG Mill View -->
+                <section id="sag-mill-view" class="view-section active">
+                    <div class="alert note">
+                        <strong><i class="fa-solid fa-circle-info"></i> NOTAS CLAVE DE IZAJE:</strong><br>
+                        1. Todo el equipo y hardware debe ser provisto por la empresa de Rigging.<br>
+                        2. Asegurar el correcto ensamblaje alineando todas las marcas de 0°.<br>
+                        3. Proteger el equipo apropiadamente durante el levantamiento.
+                    </div>
+                    <div class="timeline-container" id="sag-timeline">
+                        <!-- Rendered via JS -->
+                    </div>
+                </section>
+
+                <!-- Ball Mill View -->
+                <section id="ball-mill-view" class="view-section">
+                    <div class="alert note">
+                        <strong><i class="fa-solid fa-circle-info"></i> NOTAS CLAVE DE IZAJE:</strong><br>
+                        1. Todo el equipo y hardware debe ser provisto por la empresa de Rigging.<br>
+                        2. Asegurar el correcto ensamblaje alineando todas las marcas de 0°.<br>
+                        3. Proteger el equipo apropiadamente durante el levantamiento.
+                    </div>
+                    <div class="timeline-container" id="ball-timeline">
+                        <!-- Rendered via JS -->
+                    </div>
+                </section>
+
+                <!-- Anchor Bolts View -->
+                <section id="anchors-view" class="view-section">
+                    <div class="filter-bar">
+                        <input type="text" id="anchor-search" placeholder="Search Application, Size, Material...">
+                        <div class="pill-filters">
+                            <button class="filter-pill active" data-filter="all">All</button>
+                            <button class="filter-pill" data-filter="sag">SAG Mill</button>
+                            <button class="filter-pill" data-filter="ball">Ball Mill</button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Equipo</th>
+                                    <th>Aplicación</th>
+                                    <th>Uso</th>
+                                    <th>Cant.</th>
+                                    <th>Tamaño (Diám x Largo)</th>
+                                    <th>Material / Grado</th>
+                                    <th>Observaciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="anchors-tbody">
+                                <!-- Rendered via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- General Fasteners View -->
+                <section id="general-fasteners-view" class="view-section">
+                    <div class="alert warning">
+                        <strong><i class="fa-solid fa-triangle-exclamation"></i> AVISO:</strong><br>
+                        La tabla del manual IOM presenta errores de escaneo. Verificar Pág. 737 a 744 físicamente.
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Equipo</th>
+                                    <th>Aplicación</th>
+                                    <th>Uso</th>
+                                    <th>Cant.</th>
+                                    <th>Tamaño</th>
+                                    <th>Material / Grado</th>
+                                    <th>Observaciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="general-fasteners-tbody">
+                                <!-- Rendered via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+"use client";
 import React, { useState } from "react";
 import { CabeceraEquipo } from "@/components/Equipo/CabeceraEquipo";
 import { TabsEquipo } from "@/components/Equipo/TabsEquipo";

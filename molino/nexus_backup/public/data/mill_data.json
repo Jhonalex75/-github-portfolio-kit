@@ -1,0 +1,354 @@
+{
+  "ball_mill_1624": {
+    "lifting_stages": [
+      {
+        "Etapa": "STAGE 1",
+        "Acción": "LIFT FE SHELL CAN ONTO CRADLES\n(Izar carcasa lado alimentación sobre camas/soportes)",
+        "Peso": "31 002 kg",
+        "Imagen": "images/MIL24.001-IS-1624-18-2_rev.00 - Mill Installation Lifting Stages Sht2.pdf_page0_img5.jpeg"
+      },
+      {
+        "Etapa": "STAGE 2",
+        "Acción": "LIFT DE SHELL CAN ONTO CRADLES\n(Izar carcasa lado descarga sobre soportes y acoplarla)",
+        "Peso": "30 870 kg",
+        "Imagen": "images/MIL24.001-IS-1624-18-2_rev.00 - Mill Installation Lifting Stages Sht2.pdf_page0_img1.jpeg"
+      },
+      {
+        "Etapa": "STAGE 3",
+        "Acción": "SECURE FE HEAD TO SHELL CAN\n(Instalar cabeza fija lado alimentación hacia la carcasa)",
+        "Peso": "32 249 kg",
+        "Imagen": "images/MIL24.001-IS-1624-18-2_rev.00 - Mill Installation Lifting Stages Sht2.pdf_page0_img3.jpeg"
+      },
+      {
+        "Etapa": "STAGE 4",
+        "Acción": "LIFT DE HEAD TO SHELL CAN\n(Instalar cabeza lado descarga hacia la carcasa)",
+        "Peso": "31 733 kg",
+        "Imagen": "images/MIL24.001-IS-1624-18-2_rev.00 - Mill Installation Lifting Stages Sht2.pdf_page0_img4.jpeg"
+      }
+    ],
+    "fasteners": [
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Trunnion Bearings Located (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M68 x 1950",
+        "Material / Grado": "Grado 8.8 (Tipo 1)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Trunnion Bearings Located (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M42 x 1750",
+        "Material / Grado": "Grado 8.8 (Tipo 1)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Trunnion Bearing Non-Located (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M68 x 1950",
+        "Material / Grado": "Grado 8.8 (Tipo 1)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Trunnion Bearing Non-Located (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M42 x 1750",
+        "Material / Grado": "Grado 8.8 (Tipo 1)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Pinion Bearing (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M68 x 1800",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Pinion Bearing (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 2,
+        "Tamaño (Diámetro x Largo mm)": "M48 x 1650",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Barring Gearbox",
+        "Uso": "Anclaje",
+        "Cantidad": 7,
+        "Tamaño (Diámetro x Largo mm)": "M36 x 1300",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Gearbox (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M68 x 1800",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Gearbox (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M56 x 1640",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Motor (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M56 x 1765",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Motor (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M42 x 1635",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Jacking Cast-In Plates",
+        "Uso": "Anclaje Químico",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M30 x 340",
+        "Material / Grado": "Capsule HAS-E 8.8",
+        "Observaciones Adicionales": "Anclaje Químico"
+      },
+      {
+        "Equipo": "Molino Bolas (1624)",
+        "Aplicación": "Support Assembly Cradle",
+        "Uso": "Anclaje Químico",
+        "Cantidad": 5,
+        "Tamaño (Diámetro x Largo mm)": "M30 x 340",
+        "Material / Grado": "Capsule HAS-E 8.8",
+        "Observaciones Adicionales": "Anclaje Químico"
+      }
+    ]
+  },
+  "sag_mill_2216": {
+    "lifting_stages": [
+      {
+        "Etapa": "STAGE 1",
+        "Acción": "LIFT BOTTOM FEED SHELL (EXCL. BALL PORT) ONTO CRADLES\n(Izar mitad inferior carcasa alimentación sobre soportes)",
+        "Peso": "16 852 kg",
+        "Imagen": "images/MIL24.001-IS-2216-18-2_rev.00 - Mill Installation Lifting Stages Sht2.pdf_page0_img4.jpeg"
+      },
+      {
+        "Etapa": "STAGE 2",
+        "Acción": "LIFT TOP FEED SHELL (INCL. BALL PORT) ONTO BOTTOM SHELL\n(Izar mitad superior carcasa alimentación sobre la mitad inferior)",
+        "Peso": "16 820 kg",
+        "Imagen": "images/MIL24.001-IS-2216-18-2_rev.00 - Mill Installation Lifting Stages Sht2.pdf_page0_img3.jpeg"
+      },
+      {
+        "Etapa": "STAGE 3 & 4",
+        "Acción": "SECURE DISCHARGE END HALF TO FEED END SHELL\n(Instalar y asegurar las dos mitades de la carcasa de descarga)",
+        "Peso": "16 776 kg c/u",
+        "Imagen": "images/MIL24.001-IS-2216-18-2_rev.00 - Mill Installation Lifting Stages Sht2.pdf_page0_img5.jpeg"
+      },
+      {
+        "Etapa": "STAGE 5 & 6",
+        "Acción": "SECURE FEED END HEAD HALVES TO FEED END SHELL CAN\n(Asegurar mitades de cabeza de alimentación hacia la carcasa)",
+        "Peso": "18 650 kg c/u",
+        "Imagen": "images/MIL24.001-IS-2216-18-2_rev.00 - Mill Installation Lifting Stages Sht2.pdf_page0_img5.jpeg"
+      },
+      {
+        "Etapa": "STAGE 7 & 8",
+        "Acción": "SECURE DISCHARGE END HEAD HALVES TO SHELL CAN\n(Asegurar mitades de cabeza de descarga)",
+        "Peso": "18 650 kg c/u",
+        "Imagen": "images/MIL24.001-IS-2216-18-3_rev.00 - Mill Installation Lifting Stages Sht3.pdf_page0_img1.jpeg"
+      },
+      {
+        "Etapa": "STAGE 9",
+        "Acción": "SECURE FEED END TRUNNION TO FEED END HEADS\n(Asegurar Chumacera/Trunnion Alimentación)",
+        "Peso": "14 450 kg",
+        "Imagen": "images/MIL24.001-IS-2216-18-3_rev.00 - Mill Installation Lifting Stages Sht3.pdf_page0_img4.jpeg"
+      },
+      {
+        "Etapa": "STAGE 10",
+        "Acción": "SECURE DISCHARGE TRUNNION TO DISCHARGE HEAD\n(Asegurar Chumacera/Trunnion Descarga)",
+        "Peso": "14 450 kg",
+        "Imagen": "images/MIL24.001-IS-2216-18-3_rev.00 - Mill Installation Lifting Stages Sht3.pdf_page0_img4.jpeg"
+      }
+    ],
+    "fasteners": [
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Trunnion Bearings Located (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M68 x 1950",
+        "Material / Grado": "Grado 8.8 (Tipo 1)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Trunnion Bearings Located (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M42 x 1750",
+        "Material / Grado": "Grado 8.8 (Tipo 1)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Trunnion Bearing Non-Located (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M68 x 1950",
+        "Material / Grado": "Grado 8.8 (Tipo 1)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Trunnion Bearing Non-Located (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M42 x 1805",
+        "Material / Grado": "Grado 8.8 (Tipo 1)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC. (DIFERENTE LONGITUD vs 1624)"
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Pinion Bearing (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M68 x 1800",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Pinion Bearing (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 2,
+        "Tamaño (Diámetro x Largo mm)": "M48 x 1650",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Barring Gear",
+        "Uso": "Anclaje",
+        "Cantidad": 7,
+        "Tamaño (Diámetro x Largo mm)": "M36 x 1300",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Gearbox (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M68 x 1800",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Gearbox (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M56 x 1640",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Motor (Outside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M56 x 1765",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Motor (Inside)",
+        "Uso": "Anclaje",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M42 x 1635",
+        "Material / Grado": "EN19T (Tipo 2)",
+        "Observaciones Adicionales": "Tuercas Gr. 8, Arandelas Templadas. Dureza 45 HRC."
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Jacking Cast-In Plates",
+        "Uso": "Anclaje Químico",
+        "Cantidad": 4,
+        "Tamaño (Diámetro x Largo mm)": "M30 x 340",
+        "Material / Grado": "Capsule HAS-E 8.8",
+        "Observaciones Adicionales": "Anclaje Químico"
+      },
+      {
+        "Equipo": "Molino SAG (2216)",
+        "Aplicación": "Support Assembly Cradle",
+        "Uso": "Anclaje Químico",
+        "Cantidad": 5,
+        "Tamaño (Diámetro x Largo mm)": "M30 x 340",
+        "Material / Grado": "Capsule HAS-E 8.8",
+        "Observaciones Adicionales": "Anclaje Químico"
+      }
+    ]
+  },
+  "general": {
+    "fasteners": [
+      {
+        "Equipo": "Ambos (1624 y 2216)",
+        "Aplicación": "Pernos de Liners (Shell, Feed, Discharge)",
+        "Uso": "Liners",
+        "Cantidad": "Varias (ver IOM Pág. 737 a 744)",
+        "Tamaño (Diámetro x Largo mm)": "Por Revisar",
+        "Material / Grado": "Típicamente Acero Alta Resistencia",
+        "Observaciones Adicionales": "El texto de esta tabla en el PDF está escaneado/corrupto. Leer manualmente del IOM Fastener Schedule."
+      },
+      {
+        "Equipo": "Ambos (1624 y 2216)",
+        "Aplicación": "Pernos de Ensamble Shell (Carcasa a Trunnion)",
+        "Uso": "Ensamble Shell",
+        "Cantidad": "Varias (ver IOM)",
+        "Tamaño (Diámetro x Largo mm)": "Por Revisar",
+        "Material / Grado": "Acero Aleado / 8.8 / 10.9",
+        "Observaciones Adicionales": "Verificar Pág. 737+ en el IOM Manual. Se requiere inspección visual."
+      },
+      {
+        "Equipo": "Ambos (1624 y 2216)",
+        "Aplicación": "Pernos de Girth Gear (Corona Dentada)",
+        "Uso": "Transmisión",
+        "Cantidad": "Varias (ver IOM)",
+        "Tamaño (Diámetro x Largo mm)": "Por Revisar",
+        "Material / Grado": "EN19T o superior",
+        "Observaciones Adicionales": "Verificar Pág. 737+ en el IOM Manual."
+      },
+      {
+        "Equipo": "Ambos (1624 y 2216)",
+        "Aplicación": "Tornillería Guardas de Protección",
+        "Uso": "Guardas",
+        "Cantidad": "Varias",
+        "Tamaño (Diámetro x Largo mm)": "M10, M12, M16... (varios)",
+        "Material / Grado": "Grado 8.8 Standard",
+        "Observaciones Adicionales": "Verificar Pág. 737+ en el IOM Manual (Suelen ser comerciales 8.8 galvanizados)."
+      }
+    ]
+  }
+}

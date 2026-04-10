@@ -4,8 +4,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { 
-  LayoutDashboard, 
+import {
+  LayoutDashboard,
   ClipboardCheck,
   MessageSquare,
   Box,
@@ -18,7 +18,8 @@ import {
   Sparkles,
   ClipboardList,
   CalendarDays,
-  FileText
+  FileText,
+  BookMarked,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ export function Sidebar() {
     { name: "Research Center", icon: SearchCode, href: "/research" },
     { name: "PDT Schedule", icon: CalendarDays, href: "/pdt-schedule" },
     { name: "Reportes Diarios", icon: FileText, href: "/daily-reports" },
+    { name: "Biblioteca de Planos", icon: BookMarked, href: "/planos" },
   ];
 
   const finalPhotoURL = userData?.photoURL || user?.photoURL;

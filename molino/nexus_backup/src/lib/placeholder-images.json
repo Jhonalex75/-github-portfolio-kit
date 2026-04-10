@@ -1,0 +1,28 @@
+{
+  "placeholderImages": [
+    {
+      "id": "hero-bg",
+      "description": "Abstract cybernetic network background",
+      "imageUrl": "https://images.unsplash.com/photo-1667984390553-7f439e6ae401?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw2fHxjeWJlciUyMHRlY2hub2xvZ3l8ZW58MHx8fHwxNzcyNDc2NTExfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "cyber technology"
+    },
+    {
+      "id": "blueprint",
+      "description": "Technical engineering drawing",
+      "imageUrl": "https://images.unsplash.com/photo-1433840496881-cbd845929862?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw4fHxlbmdpbmVlcmluZyUyMGRyYXdpbmd8ZW58MHx8fHwxNzcyNTYzMzkxfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "engineering drawing"
+    },
+    {
+      "id": "robot-arm",
+      "description": "Industrial robotic arm",
+      "imageUrl": "https://images.unsplash.com/photo-1563968743333-044cef800494?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxyb2JvdGljJTIwYXJtfGVufDB8fHx8MTc3MjU2MzM5MXww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "robotic arm"
+    },
+    {
+      "id": "circuit-board",
+      "description": "Modern circuit board",
+      "imageUrl": "https://images.unsplash.com/photo-1592659762303-90081d34b277?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw1fHxjaXJjdWl0JTIwYm9hcmR8ZW58MHx8fHwxNzcyNTYzMzkxfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "circuit board"
+    }
+  ]
+}
