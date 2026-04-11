@@ -36,7 +36,7 @@ export interface DailyReportData {
     name: string;
     uploadMethod?: string;
   }>;
-  // ── NEW Extended Fields ──
+  // ── Extended Fields ──
   contractors?: Array<{
     name: string;
     personnel: number;
@@ -52,6 +52,15 @@ export interface DailyReportData {
     lessonsLearned: string;
   };
   admin_activities?: Array<{ name: string; progress: number }>;
+  // ── Per-contractor sections (new format) ──
+  contractor_sections?: Record<string, {
+    activities:  string;
+    personnel:   { mecanicos: number; soldadores: number; auxiliares: number; armadores: number; inspectoresHSE: number };
+    checklist:   { workAtHeights: boolean; hotWork: boolean; confinedSpace: boolean; scaffolding: boolean };
+    safetyInfo:  { comments: string; incidents: number; nearMisses: number; eppObservations: string; lessonsLearned: string };
+    equipment:   { grua: number; generador: number; andamios: number; camionGrua: number; torreGrua: number; equipoEspecial: string };
+    lostHours:   { malClima: number; parosHSE: number; fallasTecnicas: number };
+  }>;
 }
 
 // ─── SGS Color Palette ────────────────────────────────────────────────────────
@@ -402,47 +411,94 @@ function buildSheetContratistas(wb: ExcelJS.Workbook, report: DailyReportData) {
   });
   ws.getRow(hR).height = 28;
 
-  const contractors = report.contractors || [];
   const totalDirectos = report.recursos.filter(r => r.count > 0).reduce((s, r) => s + r.count, 0);
+
+  // Contractor color map (matches UI design)
+  const CONTRACTOR_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
+    'HL-GISAICO':   { bg: 'FFE3F2FD', fg: 'FF0D47A1', label: '🏗️ HL-GISAICO — CONTRATISTA PRINCIPAL (MECÁNICA/CIVIL)' },
+    'TECNITANQUES': { bg: 'FFE8F5E9', fg: 'FF1B5E20', label: '🛢️ TECNITANQUES — SISTEMA LIXIVIACIÓN' },
+    'CYC':          { bg: 'FFF3E5F5', fg: 'FF4A148C', label: '⚗️ CYC — SISTEMA CIP' },
+  };
+
+  // Build normalized contractor rows: prefer new contractor_sections, fall back to legacy contractors[]
+  const CONTRACTOR_IDS = ['HL-GISAICO', 'TECNITANQUES', 'CYC'] as const;
+  type ContractorRow = {
+    name: string; mec: number; sold: number; aux: number; arm: number; tot: number;
+    grua: number; gen: number; and: number; cg: number; tg: number; esp: string;
+    hcl: number; hhse: number; htec: number;
+  };
+
+  let contractorRows: ContractorRow[] = [];
+  if (report.contractor_sections) {
+    // New format
+    contractorRows = CONTRACTOR_IDS.map(id => {
+      const s = report.contractor_sections![id] ?? {};
+      const p  = s.personnel   ?? {};
+      const eq = s.equipment   ?? {};
+      const lh = s.lostHours   ?? {};
+      const mec  = (p.mecanicos      ?? 0);
+      const sold = (p.soldadores     ?? 0);
+      const aux  = (p.auxiliares     ?? 0);
+      const arm  = (p.armadores      ?? 0);
+      const insp = (p.inspectoresHSE ?? 0);
+      return {
+        name: id,
+        mec, sold, aux, arm, tot: mec + sold + aux + arm + insp,
+        grua: eq.grua ?? 0, gen: eq.generador ?? 0, and: eq.andamios ?? 0,
+        cg: eq.camionGrua ?? 0, tg: eq.torreGrua ?? 0, esp: eq.equipoEspecial || '—',
+        hcl: lh.malClima ?? 0, hhse: lh.parosHSE ?? 0, htec: lh.fallasTecnicas ?? 0,
+      };
+    });
+  } else {
+    // Legacy format
+    contractorRows = (report.contractors || []).map(c => {
+      const bd = c.breakdown ?? {};
+      const eq = c.equipment ?? {};
+      const lh = c.lostHours ?? {};
+      const mec  = bd.mecanicos  ?? 0;
+      const sold = bd.soldadores ?? 0;
+      const aux  = bd.auxiliares ?? 0;
+      const arm  = bd.armadores  ?? 0;
+      return {
+        name: c.name,
+        mec, sold, aux, arm, tot: mec + sold + aux + arm || c.personnel || 0,
+        grua: eq.grua ?? 0, gen: eq.generador ?? 0, and: eq.andamios ?? 0,
+        cg: eq.camionGrua ?? 0, tg: eq.torreGrua ?? 0, esp: eq.equipoEspecial || '—',
+        hcl: lh.malClima ?? 0, hhse: lh.parosHSE ?? 0, htec: lh.fallasTecnicas ?? 0,
+      };
+    });
+  }
 
   let totalMec = 0, totalSold = 0, totalAux = 0, totalArm = 0, totalPers = 0;
   let totalGrua = 0, totalGen = 0, totalAnd = 0, totalCG = 0, totalTG = 0;
   let totalHClima = 0, totalHHSE = 0, totalHTec = 0;
 
-  if (contractors.length > 0) {
-    contractors.forEach((c, idx) => {
-      const bd  = c.breakdown  || {};
-      const eq  = c.equipment  || {};
-      const lh  = c.lostHours  || {};
-      const mec  = bd.mecanicos  ?? 0;
-      const sold = bd.soldadores ?? 0;
-      const aux  = bd.auxiliares ?? 0;
-      const arm  = bd.armadores  ?? 0;
-      const tot  = mec + sold + aux + arm || c.personnel || 0;
-      const grua = eq.grua       ?? 0;
-      const gen  = eq.generador  ?? 0;
-      const and  = eq.andamios   ?? 0;
-      const cg   = eq.camionGrua ?? 0;
-      const tg   = eq.torreGrua  ?? 0;
-      const esp  = eq.equipoEspecial ?? '—';
-      const hcl  = lh.malClima      ?? 0;
-      const hhse = lh.parosHSE      ?? 0;
-      const htec = lh.fallasTecnicas ?? 0;
+  if (contractorRows.length > 0) {
+    contractorRows.forEach((c, idx) => {
+      const { mec, sold, aux, arm, tot, grua, gen, and: and_, cg, tg, esp, hcl, hhse, htec } = c;
 
       totalMec += mec; totalSold += sold; totalAux += aux; totalArm += arm; totalPers += tot;
-      totalGrua += grua; totalGen += gen; totalAnd += and; totalCG += cg; totalTG += tg;
+      totalGrua += grua; totalGen += gen; totalAnd += and_; totalCG += cg; totalTG += tg;
       totalHClima += hcl; totalHHSE += hhse; totalHTec += htec;
 
-      ws.addRow([idx + 1, c.name || '—', mec, sold, aux, arm, tot, grua, gen, and, cg, tg, esp, hcl, hhse, htec]);
+      const cStyle = CONTRACTOR_STYLE[c.name] ?? { bg: idx % 2 === 0 ? C.white : C.lightGray, fg: C.black, label: c.name };
+      const bg = cStyle.bg;
+
+      ws.addRow([idx + 1, cStyle.label, mec, sold, aux, arm, tot, grua, gen, and_, cg, tg, esp, hcl, hhse, htec]);
       const rn  = ws.rowCount;
-      const bg  = idx % 2 === 0 ? C.white : C.lightGray;
       const row = ws.getRow(rn);
 
       ws.getCell(`A${rn}`).alignment = { horizontal: 'center' };
-      ws.getCell(`B${rn}`).font = { bold: true, name: 'Calibri', size: 10 };
+      ws.getCell(`B${rn}`).font = { bold: true, name: 'Calibri', size: 10, color: { argb: cStyle.fg } };
+      ws.getCell(`B${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+
       // Center numeric columns
       'CDEFGHIJKLMN'.split('').forEach(col => {
-        ws.getCell(`${col}${rn}`).alignment = { horizontal: 'center', vertical: 'middle' };
+        const cell = ws.getCell(`${col}${rn}`);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
+        cell.font = { name: 'Calibri', size: 10, color: { argb: C.black } };
       });
       // Color lost hours if > 0
       (['N','O','P'] as const).forEach((col, ci) => {
@@ -453,14 +509,9 @@ function buildSheetContratistas(wb: ExcelJS.Workbook, report: DailyReportData) {
         cell.font = { bold: hasLoss, name: 'Calibri', size: 10, color: { argb: hasLoss ? 'FFCC0000' : C.black } };
         cell.alignment = { horizontal: 'center' };
       });
-      row.eachCell(cell => {
-        if (!cell.border?.top) {
-          cell.fill  = cell.fill || { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-          cell.border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
-          cell.font   = cell.font || { name: 'Calibri', size: 10, color: { argb: C.black } };
-        }
-      });
-      row.height = 20;
+      ws.getCell(`A${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      ws.getCell(`A${rn}`).border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
+      row.height = 22;
     });
 
     // Totals
@@ -756,6 +807,123 @@ function buildSheetSeguridad(wb: ExcelJS.Workbook, report: DailyReportData) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// SHEET 5 — NARRATIVAS POR CONTRATISTA (new multi-contractor format)
+// ═════════════════════════════════════════════════════════════════════════════
+function buildSheetNarrativasContratistas(wb: ExcelJS.Workbook, report: DailyReportData) {
+  const sections = report.contractor_sections;
+  if (!sections) return;
+
+  const CONTRACTORS = [
+    { id: 'HL-GISAICO',   label: '🏗️ HL-GISAICO',   sistema: 'CONTRATISTA PRINCIPAL — MECÁNICA Y CIVIL', headerBg: 'FF0D47A1', rowBg: 'FFE3F2FD', fg: 'FF0D47A1' },
+    { id: 'TECNITANQUES', label: '🛢️ TECNITANQUES', sistema: 'SISTEMA LIXIVIACIÓN',                       headerBg: 'FF1B5E20', rowBg: 'FFE8F5E9', fg: 'FF1B5E20' },
+    { id: 'CYC',          label: '⚗️ CYC',           sistema: 'SISTEMA CIP',                               headerBg: 'FF4A148C', rowBg: 'FFF3E5F5', fg: 'FF4A148C' },
+  ];
+
+  const ws = wb.addWorksheet('5. NARRATIVAS', {
+    pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToHeight: 0, fitToWidth: 1 },
+  });
+  ws.columns = [{ key: 'n', width: 6 }, { key: 'actividad', width: 90 }];
+
+  addDocumentHeader(ws, 'NARRATIVA DE ACTIVIDADES POR CONTRATISTA', report, 2);
+
+  for (const cfg of CONTRACTORS) {
+    const data = sections[cfg.id];
+    if (!data) continue;
+
+    // Section header for this contractor
+    ws.addRow([]);
+    const sepRn = ws.rowCount;
+    ws.mergeCells(`A${sepRn}:B${sepRn}`);
+    const sepCell = ws.getCell(`A${sepRn}`);
+    sepCell.value = `${cfg.label}   |   ${cfg.sistema}`;
+    sepCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.headerBg } };
+    sepCell.font  = { bold: true, name: 'Calibri', size: 11, color: { argb: C.white } };
+    sepCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    sepCell.border = { left: { style: 'thick', color: { argb: 'FFFF6B00' } } };
+    ws.getRow(sepRn).height = 26;
+
+    // Personnel summary
+    const p = data.personnel;
+    const totalP = p.mecanicos + p.soldadores + p.auxiliares + p.armadores + p.inspectoresHSE;
+    if (totalP > 0) {
+      ws.addRow(['', `👷 Personal: Mecánicos(${p.mecanicos}) · Soldadores(${p.soldadores}) · Auxiliares(${p.auxiliares}) · Armadores(${p.armadores}) · Insp.HSE(${p.inspectoresHSE}) — TOTAL: ${totalP} pers.`]);
+      const pRn = ws.rowCount;
+      ws.getCell(`A${pRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.rowBg } };
+      ws.getCell(`B${pRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.rowBg } };
+      ws.getCell(`B${pRn}`).font = { italic: true, name: 'Calibri', size: 9, color: { argb: cfg.fg } };
+      ws.getCell(`B${pRn}`).alignment = { vertical: 'middle', wrapText: true };
+      ws.getRow(pRn).height = 18;
+    }
+
+    // Activities header
+    ws.addRow(['N°', 'ACTIVIDAD EJECUTADA']);
+    const aHRn = ws.rowCount;
+    ws.getCell(`A${aHRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.fg } };
+    ws.getCell(`A${aHRn}`).font = { bold: true, name: 'Calibri', size: 9, color: { argb: C.white } };
+    ws.getCell(`A${aHRn}`).alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell(`B${aHRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.fg } };
+    ws.getCell(`B${aHRn}`).font = { bold: true, name: 'Calibri', size: 9, color: { argb: C.white } };
+    ws.getCell(`B${aHRn}`).alignment = { vertical: 'middle' };
+    ws.getRow(aHRn).height = 18;
+
+    // Activities rows
+    const lines = (data.activities || '').split('\n').map(s => s.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      lines.forEach((line, i) => {
+        ws.addRow([i + 1, line]);
+        const rn  = ws.rowCount;
+        const bg  = i % 2 === 0 ? C.white : cfg.rowBg;
+        ws.getCell(`A${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        ws.getCell(`A${rn}`).font = { bold: true, name: 'Calibri', size: 10, color: { argb: cfg.fg } };
+        ws.getCell(`A${rn}`).alignment = { horizontal: 'center', vertical: 'top' };
+        ws.getCell(`B${rn}`).value = line;
+        ws.getCell(`B${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        ws.getCell(`B${rn}`).font = { name: 'Calibri', size: 10, color: { argb: C.black } };
+        ws.getCell(`B${rn}`).alignment = { vertical: 'top', wrapText: true };
+        ws.getRow(rn).height = 20;
+        [ws.getCell(`A${rn}`), ws.getCell(`B${rn}`)].forEach(cell => {
+          cell.border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
+        });
+      });
+    } else {
+      ws.addRow(['—', 'Sin actividades registradas para este contratista.']);
+      const rn = ws.rowCount;
+      ws.getCell(`A${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.rowBg } };
+      ws.getCell(`B${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.rowBg } };
+      ws.getCell(`B${rn}`).font = { italic: true, name: 'Calibri', size: 10, color: { argb: C.gray } };
+      ws.getRow(rn).height = 20;
+    }
+
+    // HSE summary row
+    const hseActive = Object.entries(data.checklist).filter(([, v]) => v).map(([k]) =>
+      ({ workAtHeights: '🪜 Alturas', hotWork: '🔥 Caliente', confinedSpace: '⚠️ Confinados', scaffolding: '🏗️ Andamios' }[k] ?? k)
+    );
+    if (hseActive.length > 0) {
+      ws.addRow(['', `🚨 Permisos Activos: ${hseActive.join(' · ')}`]);
+      const hRn = ws.rowCount;
+      ws.getCell(`A${hRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9C4' } };
+      ws.getCell(`B${hRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9C4' } };
+      ws.getCell(`B${hRn}`).font = { bold: true, name: 'Calibri', size: 9, color: { argb: 'FF8B4000' } };
+      ws.getRow(hRn).height = 18;
+    }
+
+    // Incidents / near misses
+    const si = data.safetyInfo;
+    if (si.incidents > 0 || si.nearMisses > 0) {
+      ws.addRow(['', `🔴 Incidentes: ${si.incidents}  |  🟡 Near Miss: ${si.nearMisses}${si.comments ? `  |  ${si.comments}` : ''}`]);
+      const siRn = ws.rowCount;
+      ws.getCell(`A${siRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } };
+      ws.getCell(`B${siRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } };
+      ws.getCell(`B${siRn}`).font = { bold: true, name: 'Calibri', size: 9, color: { argb: 'FFCC0000' } };
+      ws.getCell(`B${siRn}`).alignment = { wrapText: true, vertical: 'top' };
+      ws.getRow(siRn).height = 22;
+    }
+  }
+
+  addFooter(ws, 2);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT FUNCTION
 // ═════════════════════════════════════════════════════════════════════════════
 export const generateDailyReportExcel = async (report: DailyReportData) => {
@@ -766,13 +934,14 @@ export const generateDailyReportExcel = async (report: DailyReportData) => {
   wb.modified  = new Date();
   wb.company   = 'ARIS MINING S.A.S. — SGS Certified';
   wb.subject   = `Reporte Diario ${report.metadata.consecutiveId}`;
-  wb.title     = `Dossier Técnico — ${report.metadata.frente} — ${new Date(report.metadata.date).toLocaleDateString('es-CO')}`;
+  wb.title     = `Dossier Técnico — Lower Mining Marmato — ${new Date(report.metadata.date).toLocaleDateString('es-CO')}`;
 
-  // Build all 4 sheets
+  // Build sheets
   await buildSheetReporteDiario(wb, report);
   buildSheetContratistas(wb, report);
   buildSheetAvances(wb, report);
   buildSheetSeguridad(wb, report);
+  buildSheetNarrativasContratistas(wb, report); // Sheet 5 — only if new format
 
   // ── Filename ──────────────────────────────────────────────────────────────
   const dateStr    = new Date(report.metadata.date).toISOString().split('T')[0];

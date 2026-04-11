@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, ChangeEvent } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback, ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { TopNav } from '@/components/Navigation';
 import { Sidebar } from '@/components/Sidebar';
@@ -27,64 +27,70 @@ import {
   Save, FileText, CheckCircle2, AlertTriangle,
   Shield, Users, Edit2, ChevronDown, ClipboardList,
   Building2, MessageSquare, TrendingUp, Percent,
-  HardHat, AlertCircle, BookOpen,
+  HardHat, AlertCircle, BookOpen, Printer,
 } from 'lucide-react';
 import { generateDailyReportExcel, DailyReportData } from '@/lib/excel-generator';
 import { MonthlyDashboard } from '@/components/daily-reports/MonthlyDashboard';
 import { ContractorActivityDashboard } from '@/components/daily-reports/ContractorActivityDashboard';
+import { ReportPrintPreview, PrintReportData } from '@/components/daily-reports/ReportPrintPreview';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Auth ────────────────────────────────────────────────────────────────────
 const ROOT_UIDS = ['R3MVwE12nVMg128Kv6bdwJ6MKav1', 'Ew4plK83Z9O6c8J1dM3F0tP04A83'];
 
-const FRENTES = ['TECNITANQUES', 'C&C', 'MARMATO OPS', 'SUPERVISIÓN DIRECTA', 'OTRO'];
+// ─── Contractors ─────────────────────────────────────────────────────────────
+const CONTRACTORS_CONFIG = [
+  {
+    id: 'HL-GISAICO',
+    label: 'HL-GISAICO',
+    sistema: 'GENERAL',
+    description: 'Contratista Principal — Actividades Mecánicas y Civiles',
+    icon: '🏗️',
+    color: '#22D3EE',
+    activeCls: 'bg-cyan-500/15 border-cyan-500/50 text-cyan-400',
+    inactiveCls: 'bg-primary/5 border-primary/10 text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400/70',
+    printColor: '#1565C0',
+  },
+  {
+    id: 'TECNITANQUES',
+    label: 'TECNITANQUES',
+    sistema: 'LIXIVIACIÓN',
+    description: 'Subcontratista — Montaje Tanques Sistema Lixiviación',
+    icon: '🛢️',
+    color: '#4ADE80',
+    activeCls: 'bg-green-500/15 border-green-500/50 text-green-400',
+    inactiveCls: 'bg-primary/5 border-primary/10 text-primary/40 hover:border-green-500/30 hover:text-green-400/70',
+    printColor: '#2E7D32',
+  },
+  {
+    id: 'CYC',
+    label: 'CYC',
+    sistema: 'CIP',
+    description: 'Subcontratista — Montaje Tanques Sistema CIP',
+    icon: '⚗️',
+    color: '#C084FC',
+    activeCls: 'bg-purple-500/15 border-purple-500/50 text-purple-400',
+    inactiveCls: 'bg-primary/5 border-primary/10 text-primary/40 hover:border-purple-500/30 hover:text-purple-400/70',
+    printColor: '#6A1B9A',
+  },
+] as const;
 
+type ContractorId = 'HL-GISAICO' | 'TECNITANQUES' | 'CYC';
+
+// ─── Climate & HSE ───────────────────────────────────────────────────────────
 const WEATHER_OPTIONS = [
   'Soleado ☀️', 'Parcialmente Nublado ⛅', 'Nublado ☁️',
   'Llovizna 🌦️', 'Lluvia ☔', 'Tormenta ⛈️',
 ];
 
 const HSE_CONFIG = {
-  workAtHeights: { label: 'Trabajo en Alturas',   icon: '🪜', bg: 'bg-amber-500/20 border-amber-500/40 text-amber-300' },
-  hotWork:       { label: 'Trabajo en Caliente',  icon: '🔥', bg: 'bg-red-500/20 border-red-500/40 text-red-300' },
-  confinedSpace: { label: 'Espacios Confinados',  icon: '⚠️', bg: 'bg-orange-500/20 border-orange-500/40 text-orange-300' },
+  workAtHeights: { label: 'Trabajo en Alturas',    icon: '🪜', bg: 'bg-amber-500/20 border-amber-500/40 text-amber-300' },
+  hotWork:       { label: 'Trabajo en Caliente',   icon: '🔥', bg: 'bg-red-500/20 border-red-500/40 text-red-300' },
+  confinedSpace: { label: 'Espacios Confinados',   icon: '⚠️', bg: 'bg-orange-500/20 border-orange-500/40 text-orange-300' },
   scaffolding:   { label: 'Andamios Certificados', icon: '🏗️', bg: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300' },
 } as const;
-
 type HSEKey = keyof typeof HSE_CONFIG;
 
-const DEFAULT_RECURSOS = [
-  { type: 'Soldadores Calificados', count: 0 },
-  { type: 'Mecánicos Armadores',    count: 0 },
-  { type: 'Inspectores HSE',        count: 0 },
-];
-
-// ⬇ Images <200KB stay as Base64 in Firestore; larger go to Cloud Storage
-const STORAGE_THRESHOLD = 200 * 1024; // 200 KB
-
-// ─── Client-side image compression ─────────────────────────────────────────
-// Resizes to max 1200px and re-encodes at 75% quality before Base64 storage.
-// Keeps PDFs / non-image files untouched.
-function compressImage(file: File, maxPx = 1200, quality = 0.75): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
-      const w = Math.round(img.width  * scale);
-      const h = Math.round(img.height * scale);
-      const canvas = document.createElement('canvas');
-      canvas.width  = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', quality));
-    };
-    img.onerror = reject;
-    img.src = url;
-  });
-}
-
+// ─── Admin activities ─────────────────────────────────────────────────────────
 const DEFAULT_ADMIN_ACTIVITIES = [
   { name: 'Revisión de procedimientos de montaje',     progress: 0 },
   { name: 'Revisión de ingeniería',                    progress: 0 },
@@ -96,68 +102,73 @@ const DEFAULT_ADMIN_ACTIVITIES = [
 ];
 
 const ACTIVE_PROJECT = 'default-nexus-project';
+const STORAGE_THRESHOLD = 200 * 1024;
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface ChecklistHSE { workAtHeights: boolean; hotWork: boolean; confinedSpace: boolean; scaffolding: boolean }
-interface Recurso      { type: string; count: number }
 interface Evidence     { type: 'photo' | 'pdf'; urlOrBase64: string; name: string; uploadMethod: 'base64' | 'storage' }
+interface AdminActivity { name: string; progress: number }
 
 interface ContractorPersonnel {
-  mecanicos:   number;
-  soldadores:  number;
-  auxiliares:  number;
-  armadores:   number;
+  mecanicos:      number;
+  soldadores:     number;
+  auxiliares:     number;
+  armadores:      number;
+  inspectoresHSE: number;
 }
 interface ContractorEquipment {
-  grua:          number;   // unidades
-  generador:     number;
-  andamios:      number;   // m³
-  camionGrua:    number;
-  torreGrua:     number;
-  equipoEspecial: string;  // descripción libre
+  grua:           number;
+  generador:      number;
+  andamios:       number;
+  camionGrua:     number;
+  torreGrua:      number;
+  equipoEspecial: string;
 }
 interface ContractorLostHours {
-  malClima:      number;
-  parosHSE:      number;
+  malClima:       number;
+  parosHSE:       number;
   fallasTecnicas: number;
 }
-interface Contractor {
-  name:       string;
-  personnel:  number;   // total (suma de breakdown)
-  breakdown:  ContractorPersonnel;
-  equipment:  ContractorEquipment;
-  lostHours:  ContractorLostHours;
-}
-interface AdminActivity { name: string; progress: number }   // 0-100 %
-interface SafetyInfo    {
-  comments:       string;
-  incidents:      number;
-  nearMisses:     number;
-  eppObservations: string;
-  lessonsLearned: string;
+interface SafetyInfo {
+  comments:         string;
+  incidents:        number;
+  nearMisses:       number;
+  eppObservations:  string;
+  lessonsLearned:   string;
 }
 
+/** Data stored per-contractor */
+interface PerContractorData {
+  activities:  string;
+  personnel:   ContractorPersonnel;
+  checklist:   ChecklistHSE;
+  safetyInfo:  SafetyInfo;
+  equipment:   ContractorEquipment;
+  lostHours:   ContractorLostHours;
+}
+
+type ContractorSections = Record<ContractorId, PerContractorData>;
+
+// ─── Defaults ─────────────────────────────────────────────────────────────────
 const EMPTY_SAFETY: SafetyInfo = { comments: '', incidents: 0, nearMisses: 0, eppObservations: '', lessonsLearned: '' };
+const EMPTY_CHECKLIST: ChecklistHSE = { workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false };
 
-const EMPTY_CONTRACTOR = (): Contractor => ({
-  name:      '',
-  personnel: 0,
-  breakdown: { mecanicos: 0, soldadores: 0, auxiliares: 0, armadores: 0 },
-  equipment: { grua: 0, generador: 0, andamios: 0, camionGrua: 0, torreGrua: 0, equipoEspecial: '' },
-  lostHours: { malClima: 0, parosHSE: 0, fallasTecnicas: 0 },
+const DEFAULT_CONTRACTOR_DATA = (): PerContractorData => ({
+  activities:  '',
+  personnel:   { mecanicos: 0, soldadores: 0, auxiliares: 0, armadores: 0, inspectoresHSE: 0 },
+  checklist:   { ...EMPTY_CHECKLIST },
+  safetyInfo:  { ...EMPTY_SAFETY },
+  equipment:   { grua: 0, generador: 0, andamios: 0, camionGrua: 0, torreGrua: 0, equipoEspecial: '' },
+  lostHours:   { malClima: 0, parosHSE: 0, fallasTecnicas: 0 },
 });
 
-/** Migra un contractor legacy (solo name+personnel) al nuevo esquema */
-function migrateContractor(c: Partial<Contractor>): Contractor {
-  const full = EMPTY_CONTRACTOR();
-  full.name      = c.name      ?? '';
-  full.personnel = c.personnel ?? 0;
-  if (c.breakdown)  full.breakdown  = { ...full.breakdown,  ...c.breakdown };
-  if (c.equipment)  full.equipment  = { ...full.equipment,  ...c.equipment };
-  if (c.lostHours)  full.lostHours  = { ...full.lostHours,  ...c.lostHours };
-  return full;
-}
+const DEFAULT_SECTIONS = (): ContractorSections => ({
+  'HL-GISAICO':   DEFAULT_CONTRACTOR_DATA(),
+  'TECNITANQUES': DEFAULT_CONTRACTOR_DATA(),
+  'CYC':          DEFAULT_CONTRACTOR_DATA(),
+});
 
+// ─── Firestore doc type ───────────────────────────────────────────────────────
 interface ReportDoc {
   id: string;
   metadata: {
@@ -165,17 +176,192 @@ interface ReportDoc {
     authorUid: string; authorName: string; frente: string;
     proyectoRef: string; status: 'draft' | 'anchored';
   };
-  seguridad_hse:    ChecklistHSE & { hasActiveRisk: boolean };
-  recursos_frente:  Recurso[];
-  contractors?:     Contractor[];
-  safety_info?:     SafetyInfo;
-  admin_activities?: AdminActivity[];
-  activities:  string;
-  evidence:    Evidence[];
-  timestamp?:  unknown;
+  seguridad_hse:      ChecklistHSE & { hasActiveRisk: boolean };
+  recursos_frente:    { type: string; count: number }[];
+  contractor_sections?: ContractorSections;
+  // legacy
+  contractors?:       { name: string; personnel: number; breakdown?: Partial<ContractorPersonnel>; equipment?: Partial<ContractorEquipment>; lostHours?: Partial<ContractorLostHours> }[];
+  safety_info?:       SafetyInfo;
+  admin_activities?:  AdminActivity[];
+  activities:         string;
+  evidence:           Evidence[];
+  timestamp?:         unknown;
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Image compression ────────────────────────────────────────────────────────
+function compressImage(file: File, maxPx = 1200, quality = 0.75): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width  * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+// ─── Print data adapter ───────────────────────────────────────────────────────
+const PROF_NAME    = 'MSC. ING. JHON ALEXANDER VALENCIA MARULANDA';
+const PROF_LICENSE = 'CL230-31983';
+
+// Resolves per-contractor data from a ReportDoc, with full legacy migration
+function resolveContractorData(r: ReportDoc, cid: ContractorId): PerContractorData {
+  // New format: contractor_sections exists and has data for this contractor
+  const fromNew = (r.contractor_sections as Record<string, PerContractorData> | undefined)?.[cid];
+  if (fromNew) {
+    // Ensure all fields are present (Firestore may return partial objects)
+    const def = DEFAULT_CONTRACTOR_DATA();
+    return {
+      activities:  fromNew.activities  ?? '',
+      personnel:   { ...def.personnel,  ...(fromNew.personnel  ?? {}) },
+      checklist:   { ...def.checklist,  ...(fromNew.checklist  ?? {}) },
+      safetyInfo:  { ...def.safetyInfo, ...(fromNew.safetyInfo ?? {}) },
+      equipment:   { ...def.equipment,  ...(fromNew.equipment  ?? {}) },
+      lostHours:   { ...def.lostHours,  ...(fromNew.lostHours  ?? {}) },
+    };
+  }
+
+  // Legacy format: only HL-GISAICO has data from the old fields
+  const d = DEFAULT_CONTRACTOR_DATA();
+  if (cid === 'HL-GISAICO') {
+    d.activities = r.activities || '';
+    d.checklist  = {
+      workAtHeights: !!r.seguridad_hse?.workAtHeights,
+      hotWork:       !!r.seguridad_hse?.hotWork,
+      confinedSpace: !!r.seguridad_hse?.confinedSpace,
+      scaffolding:   !!r.seguridad_hse?.scaffolding,
+    };
+    d.safetyInfo = r.safety_info ? { ...r.safety_info } : { ...EMPTY_SAFETY };
+    const old = r.contractors?.find(c => c.name === 'HL-GISAICO');
+    if (old?.breakdown) {
+      d.personnel = {
+        mecanicos:      old.breakdown.mecanicos  ?? 0,
+        soldadores:     old.breakdown.soldadores ?? 0,
+        auxiliares:     old.breakdown.auxiliares ?? 0,
+        armadores:      old.breakdown.armadores  ?? 0,
+        inspectoresHSE: 0,
+      };
+    }
+    if (old?.equipment) {
+      d.equipment = {
+        grua:           old.equipment.grua          ?? 0,
+        generador:      old.equipment.generador     ?? 0,
+        andamios:       old.equipment.andamios      ?? 0,
+        camionGrua:     old.equipment.camionGrua    ?? 0,
+        torreGrua:      old.equipment.torreGrua     ?? 0,
+        equipoEspecial: old.equipment.equipoEspecial ?? '',
+      };
+    }
+    if (old?.lostHours) {
+      d.lostHours = {
+        malClima:       old.lostHours.malClima       ?? 0,
+        parosHSE:       old.lostHours.parosHSE       ?? 0,
+        fallasTecnicas: old.lostHours.fallasTecnicas ?? 0,
+      };
+    }
+    // Also try legacy recursos_frente
+    if (!old && r.recursos_frente?.length) {
+      r.recursos_frente.forEach(rec => {
+        if (rec.type.toLowerCase().includes('mecán'))  d.personnel.mecanicos      = rec.count;
+        if (rec.type.toLowerCase().includes('soldad')) d.personnel.soldadores     = rec.count;
+        if (rec.type.toLowerCase().includes('auxili')) d.personnel.auxiliares     = rec.count;
+        if (rec.type.toLowerCase().includes('armad'))  d.personnel.armadores      = rec.count;
+        if (rec.type.toLowerCase().includes('hse'))    d.personnel.inspectoresHSE = rec.count;
+      });
+    }
+  } else {
+    // Legacy: try to find this contractor in old contractors[] by name
+    const old = r.contractors?.find(c => c.name === cid);
+    if (old?.breakdown) {
+      d.personnel = {
+        mecanicos:      old.breakdown.mecanicos  ?? 0,
+        soldadores:     old.breakdown.soldadores ?? 0,
+        auxiliares:     old.breakdown.auxiliares ?? 0,
+        armadores:      old.breakdown.armadores  ?? 0,
+        inspectoresHSE: 0,
+      };
+    }
+    if (old?.equipment) {
+      d.equipment = {
+        grua:           old.equipment.grua          ?? 0,
+        generador:      old.equipment.generador     ?? 0,
+        andamios:       old.equipment.andamios      ?? 0,
+        camionGrua:     old.equipment.camionGrua    ?? 0,
+        torreGrua:      old.equipment.torreGrua     ?? 0,
+        equipoEspecial: old.equipment.equipoEspecial ?? '',
+      };
+    }
+  }
+  return d;
+}
+
+function buildPrintData(r: ReportDoc): PrintReportData {
+  const mapSection = (cfg: (typeof CONTRACTORS_CONFIG)[number]) => {
+    const cid  = cfg.id as ContractorId;
+    const data = resolveContractorData(r, cid);
+
+    return {
+      contratista: cfg.id,
+      sistema: cfg.sistema !== 'GENERAL' ? cfg.sistema : undefined,
+      activities: data.activities.split('\n').map(s => s.trim()).filter(Boolean),
+      personal:   { ...data.personnel },
+      equipment:  { ...data.equipment },
+      hsePermisos: [
+        { riesgo: '🪜 Trabajo en Alturas',    estado: data.checklist.workAtHeights ? '✅ AUTORIZADO — APT FIRMADO Y VALIDADO' : '— N/A — Sin riesgo identificado' },
+        { riesgo: '🔥 Trabajo en Caliente',   estado: data.checklist.hotWork       ? '✅ AUTORIZADO — APT FIRMADO Y VALIDADO' : '— N/A — Sin riesgo identificado' },
+        { riesgo: '⚠️ Espacios Confinados',  estado: data.checklist.confinedSpace  ? '🔴 ACTIVO — Monitoreo atmosférico requerido' : '— N/A — Sin riesgo identificado' },
+        { riesgo: '🏗️ Andamios Certificados', estado: data.checklist.scaffolding   ? '✅ AUTORIZADO — APT FIRMADO Y VALIDADO' : '— N/A — Sin riesgo identificado' },
+      ],
+      seguridad: {
+        comentarios:         data.safetyInfo.comments,
+        incidentes:          data.safetyInfo.incidents,
+        cuasiAccidentes:     data.safetyInfo.nearMisses,
+        observacionesEpp:    data.safetyInfo.eppObservations,
+        leccionesAprendidas: data.safetyInfo.lessonsLearned,
+      },
+    };
+  };
+
+  const folio = r.metadata?.consecutiveId || '—';
+  const fecha = r.metadata?.date
+    ? new Date(r.metadata.date).toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    : '—';
+
+  return {
+    documentControl: {
+      empresaSupervisora:   'SGS S.A.',
+      normativa:            'DOCUMENTO CONTROLADO — ISO 9001:2015 — Cert. No. CO23-1234-QMS',
+      cliente:              'ARIS MINING S.A.S.',
+      tipoReporte:          'REPORTE DIARIO DE MONTAJE INDUSTRIAL',
+      proyecto:             r.metadata?.proyectoRef || 'ARIS MINING — MIL24.001',
+      folio,
+      fechaOperacion:       fecha,
+      codigoDocumento:      `DOC-NEXUS-${folio}`,
+      revision:             '01',
+      emisor:               PROF_NAME,
+      matriculaProfesional: PROF_LICENSE,
+    },
+    condicionClimatica: r.metadata?.weather || '—',
+    estadoFolio:        (r.metadata?.status || 'ANCLADO').toUpperCase(),
+    contratistas:       CONTRACTORS_CONFIG.map(mapSection),
+    evidence:           (r.evidence || []).filter(e => e.type === 'photo'),
+    adminActivities: (r.admin_activities || []).map(a => ({
+      actividad:   a.name,
+      porcentaje:  `${a.progress}%`,
+      estado: a.progress < 30 ? '🔴 CRÍTICO' : a.progress < 70 ? '🟡 EN PROGRESO' : a.progress < 100 ? '🟢 AVANZADO' : '✅ COMPLETADO',
+    })),
+  };
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function DailyReportsPage() {
   const router      = useRouter();
   const firestore   = useFirestore();
@@ -187,34 +373,58 @@ export default function DailyReportsPage() {
   const [mounted, setMounted] = useState(false);
   const isRoot = user && ROOT_UIDS.includes(user.uid);
 
-  // Form state
-  type TabId = 'meta' | 'hse' | 'recursos' | 'contratistas' | 'seguridad' | 'admin' | 'evidencia';
+  // ── Active contractor tab ──
+  const [activeContractorId, setActiveContractorId] = useState<ContractorId>('HL-GISAICO');
+  // Ref ensures updateSection always reads the current contractorId even in async/batched updates
+  const activeContractorIdRef = useRef<ContractorId>('HL-GISAICO');
+  useEffect(() => { activeContractorIdRef.current = activeContractorId; }, [activeContractorId]);
+
+  // ── Per-contractor data ──
+  const [contractorSections, setContractorSections] = useState<ContractorSections>(DEFAULT_SECTIONS());
+
+  // ── Global form state ──
+  type TabId = 'meta' | 'hse' | 'recursos' | 'equipos' | 'seguridad' | 'admin' | 'evidencia';
   const [tab,             setTab]             = useState<TabId>('meta');
-  const [frente,          setFrente]          = useState('TECNITANQUES');
-  const [customFrente,    setCustomFrente]    = useState('');
   const [weather,         setWeather]         = useState('Soleado ☀️');
-  const [activities,      setActivities]      = useState('');
-  const [recursos,        setRecursos]        = useState<Recurso[]>([...DEFAULT_RECURSOS]);
-  const [checklist,       setChecklist]       = useState<ChecklistHSE>({ workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false });
+  const [adminActivities, setAdminActivities] = useState<AdminActivity[]>(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
   const [evidence,        setEvidence]        = useState<Evidence[]>([]);
-  // ── New extended state ──
-  const [contractors,     setContractors]     = useState<Contractor[]>([EMPTY_CONTRACTOR()]);
-  const [safetyInfo,      setSafetyInfo]      = useState<SafetyInfo>({ ...EMPTY_SAFETY });
-  const [adminActivities, setAdminActivities] = useState<AdminActivity[]>(
-    DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a }))
+
+  // ── UI state ──
+  const [submitting,      setSubmitting]      = useState(false);
+  const [drafting,        setDrafting]        = useState(false);
+  const [progress,        setProgress]        = useState<Record<string, number>>({});
+  const [expanded,        setExpanded]        = useState<string | null>(null);
+  const [editing,         setEditing]         = useState<ReportDoc | null>(null);
+  const [search,          setSearch]          = useState('');
+  const [lastId,          setLastId]          = useState<string | null>(null);
+  const [printingReport,  setPrintingReport]  = useState<ReportDoc | null>(null);
+
+  // ── Derived ──
+  const activeData = contractorSections[activeContractorId];
+  const activeCfg  = CONTRACTORS_CONFIG.find(c => c.id === activeContractorId)!;
+
+  // Update helper for per-contractor fields.
+  // Uses the ref so the closure is always fresh even when React batches renders.
+  const updateSection = useCallback(<K extends keyof PerContractorData>(
+    field: K,
+    value: PerContractorData[K],
+  ) => {
+    const cid = activeContractorIdRef.current;
+    setContractorSections(prev => ({
+      ...prev,
+      [cid]: { ...prev[cid], [field]: value },
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const anyRisk = Object.values(activeData.checklist).some(Boolean);
+  const anyRiskGlobal = CONTRACTORS_CONFIG.some(cfg =>
+    Object.values(contractorSections[cfg.id as ContractorId].checklist).some(Boolean)
   );
 
-  // UI state
-  const [submitting,   setSubmitting]   = useState(false);
-  const [drafting,     setDrafting]     = useState(false);
-  const [progress,     setProgress]     = useState<Record<string, number>>({});
-  const [expanded,     setExpanded]     = useState<string | null>(null);
-  const [editing,      setEditing]      = useState<ReportDoc | null>(null);
-  const [search,       setSearch]       = useState('');
-  const [lastId,       setLastId]       = useState<string | null>(null);
-
-  const activeFrente = frente === 'OTRO' ? customFrente : frente;
-  const anyRisk = Object.values(checklist).some(Boolean);
+  const totalPersonnelAll = CONTRACTORS_CONFIG.reduce((s, cfg) =>
+    s + Object.values(contractorSections[cfg.id as ContractorId].personnel).reduce((a, b) => a + b, 0), 0
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -248,7 +458,6 @@ export default function DailyReportsPage() {
     const files = e.target.files;
     if (!files?.length) return;
 
-    // Process ALL files in parallel — no more serial bottleneck
     const uploads = Array.from(files).map(async (file, i) => {
       const key  = `${file.name}_${i}`;
       const type = file.type.includes('pdf') ? 'pdf' : 'photo';
@@ -257,46 +466,30 @@ export default function DailyReportsPage() {
       let item: Evidence | null = null;
 
       if (type === 'photo') {
-        // Always compress first — compressImage guarantees output < ~120KB
         try {
           setProgress(p => ({ ...p, [key]: 30 }));
           const b64 = await compressImage(file);
-          // After compression, most images are well under 800KB
           const estBytes = Math.round(b64.length * 0.75);
           if (estBytes < 800 * 1024) {
             item = { type, urlOrBase64: b64, name: file.name, uploadMethod: 'base64' };
             setProgress(p => ({ ...p, [key]: 100 }));
           } else {
-            // Very large image even after compression → Storage
             const blob = await (await fetch(b64)).blob();
             const f2   = new File([blob], file.name, { type: 'image/jpeg' });
-            const res  = await uploadFileToStorage(firebaseApp, f2, ACTIVE_PROJECT,
-              pct => setProgress(p => ({ ...p, [key]: 30 + Math.round(pct * 0.7) })));
-            if (res.success && res.downloadUrl) {
-              item = { type, urlOrBase64: res.downloadUrl, name: file.name, uploadMethod: 'storage' };
-            } else {
-              toast({ variant: 'destructive', title: 'Error al subir', description: `${file.name}: ${res.error}` });
-            }
+            const res  = await uploadFileToStorage(firebaseApp, f2, ACTIVE_PROJECT, pct => setProgress(p => ({ ...p, [key]: 30 + Math.round(pct * 0.7) })));
+            if (res.success && res.downloadUrl) item = { type, urlOrBase64: res.downloadUrl, name: file.name, uploadMethod: 'storage' };
+            else toast({ variant: 'destructive', title: 'Error al subir', description: `${file.name}: ${res.error}` });
           }
-        } catch (err) {
+        } catch {
           toast({ variant: 'destructive', title: 'Error procesando imagen', description: file.name });
         }
       } else {
-        // PDF → always Cloud Storage
-        const res = await uploadFileToStorage(firebaseApp, file, ACTIVE_PROJECT,
-          pct => setProgress(p => ({ ...p, [key]: pct })));
-        if (res.success && res.downloadUrl) {
-          item = { type, urlOrBase64: res.downloadUrl, name: file.name, uploadMethod: 'storage' };
-        } else {
-          toast({ variant: 'destructive', title: 'Error al subir PDF', description: `${file.name}: ${res.error}` });
-        }
+        const res = await uploadFileToStorage(firebaseApp, file, ACTIVE_PROJECT, pct => setProgress(p => ({ ...p, [key]: pct })));
+        if (res.success && res.downloadUrl) item = { type, urlOrBase64: res.downloadUrl, name: file.name, uploadMethod: 'storage' };
+        else toast({ variant: 'destructive', title: 'Error al subir PDF', description: `${file.name}: ${res.error}` });
       }
 
-      // Update evidence incrementally as each file finishes
-      if (item) {
-        const ev = item;
-        setEvidence(prev => [...prev, ev]);
-      }
+      if (item) { const ev = item; setEvidence(prev => [...prev, ev]); }
       setTimeout(() => setProgress(p => { const n = { ...p }; delete n[key]; return n; }), 2000);
     });
 
@@ -304,46 +497,76 @@ export default function DailyReportsPage() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
-  // ── Build payload ──
-  const buildPayload = (consecutiveId: string, status: 'anchored' | 'draft' = 'anchored') => ({
-    metadata: {
-      consecutiveId,
-      date:       new Date().toISOString(),
-      weather,
-      authorUid:  user!.uid,
-      authorName: user!.displayName || user!.email || 'Ing. Certificado',
-      frente:     activeFrente,
-      proyectoRef: 'ARIS MINING — MIL24.001',
-      status,
-    },
-    seguridad_hse:    { ...checklist, hasActiveRisk: anyRisk },
-    recursos_frente:  recursos.filter(r => r.type && r.count > 0),
-    contractors:      contractors.filter(c => c.name.trim()),
-    safety_info:      safetyInfo,
-    admin_activities: adminActivities,
-    activities,
-    evidence,
-    timestamp:    serverTimestamp(),
-    lastModified: serverTimestamp(),
-  });
+  // ── Build Firestore payload ──
+  const buildPayload = (consecutiveId: string, status: 'anchored' | 'draft' = 'anchored') => {
+    const hlData = contractorSections['HL-GISAICO'];
 
-  // ── Reset ──
-  const reset = () => {
-    setActivities(''); setEvidence([]); setFrente('TECNITANQUES');
-    setCustomFrente(''); setWeather('Soleado ☀️');
-    setRecursos([...DEFAULT_RECURSOS]);
-    setChecklist({ workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false });
-    setContractors([EMPTY_CONTRACTOR()]);
-    setSafetyInfo({ ...EMPTY_SAFETY });
-    setAdminActivities(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
-    setEditing(null); setTab('meta');
+    // Legacy contractors[] for Excel Sheet 2 backward compat
+    const contractorsLegacy = CONTRACTORS_CONFIG.map(cfg => {
+      const d = contractorSections[cfg.id as ContractorId];
+      const total = Object.values(d.personnel).reduce((s, v) => s + v, 0);
+      return {
+        name:      cfg.id,
+        personnel: total,
+        breakdown: { mecanicos: d.personnel.mecanicos, soldadores: d.personnel.soldadores, auxiliares: d.personnel.auxiliares, armadores: d.personnel.armadores },
+        equipment: d.equipment,
+        lostHours: d.lostHours,
+      };
+    });
+
+    // Legacy recursos_frente from HL-GISAICO personnel
+    const recursos_frente = [
+      { type: 'Mecánicos Armadores',    count: hlData.personnel.mecanicos },
+      { type: 'Soldadores Calificados', count: hlData.personnel.soldadores },
+      { type: 'Auxiliares / Ayudantes', count: hlData.personnel.auxiliares },
+      { type: 'Armadores',              count: hlData.personnel.armadores },
+      { type: 'Inspectores HSE',        count: hlData.personnel.inspectoresHSE },
+    ].filter(r => r.count > 0);
+
+    return {
+      metadata: {
+        consecutiveId,
+        date:        new Date().toISOString(),
+        weather,
+        authorUid:   user!.uid,
+        authorName:  user!.displayName || user!.email || 'Ing. Certificado',
+        frente:      'HL-GISAICO',
+        proyectoRef: 'ARIS MINING — MIL24.001',
+        status,
+      },
+      // New per-contractor data
+      contractor_sections: contractorSections,
+      // Legacy fields (HL-GISAICO mirrors)
+      seguridad_hse:    { ...hlData.checklist, hasActiveRisk: Object.values(hlData.checklist).some(Boolean) },
+      recursos_frente,
+      activities:       hlData.activities,
+      safety_info:      hlData.safetyInfo,
+      // Global
+      contractors:      contractorsLegacy,
+      admin_activities: adminActivities,
+      evidence,
+      timestamp:        serverTimestamp(),
+      lastModified:     serverTimestamp(),
+    };
   };
 
-  // ── Submit (confirmed addDoc) ──
+  // ── Reset form ──
+  const reset = () => {
+    setContractorSections(DEFAULT_SECTIONS());
+    setActiveContractorId('HL-GISAICO');
+    setWeather('Soleado ☀️');
+    setAdminActivities(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
+    setEvidence([]);
+    setEditing(null);
+    setTab('meta');
+  };
+
+  // ── Submit ──
   const handleSubmit = async () => {
     if (!firestore || !user) return;
-    if (!activeFrente || !activities.trim()) {
-      toast({ variant: 'destructive', title: 'CAMPOS OBLIGATORIOS', description: 'Complete Frente y Actividades.' });
+    const hlActivities = contractorSections['HL-GISAICO'].activities;
+    if (!hlActivities.trim()) {
+      toast({ variant: 'destructive', title: 'CAMPOS OBLIGATORIOS', description: 'Complete al menos las Actividades de HL-GISAICO.' });
       return;
     }
     setSubmitting(true);
@@ -372,9 +595,9 @@ export default function DailyReportsPage() {
     }
   };
 
-  // ── Save draft ──
+  // ── Draft ──
   const handleDraft = async () => {
-    if (!firestore || !user || !activeFrente) return;
+    if (!firestore || !user) return;
     setDrafting(true);
     try {
       const colRef = collection(firestore, 'projects', ACTIVE_PROJECT, 'daily_reports');
@@ -403,8 +626,9 @@ export default function DailyReportsPage() {
         activities:    r.activities,
         evidence:      r.evidence         || [],
         contractors:   r.contractors      || [],
-        safety_info:   r.safety_info      || { ...EMPTY_SAFETY },
-        admin_activities: r.admin_activities || DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })),
+        safety_info:   r.safety_info,
+        admin_activities:    r.admin_activities || DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })),
+        contractor_sections: r.contractor_sections,
       };
       await generateDailyReportExcel(data);
       toast({ title: '✅ DOSSIER EMITIDO', description: 'SGS/ISO 9001 — Listo para ARIS MINING.' });
@@ -414,29 +638,46 @@ export default function DailyReportsPage() {
     }
   };
 
-  // ── Load report for editing ──
+  // ── Load for editing ──
   const loadEdit = (r: ReportDoc) => {
     setEditing(r);
-    setFrente(FRENTES.includes(r.metadata.frente) ? r.metadata.frente : 'OTRO');
-    setCustomFrente(FRENTES.includes(r.metadata.frente) ? '' : r.metadata.frente);
     setWeather(r.metadata.weather);
-    setActivities(r.activities);
-    setRecursos(r.recursos_frente?.length ? r.recursos_frente : [...DEFAULT_RECURSOS]);
-    setChecklist({
-      workAtHeights: r.seguridad_hse?.workAtHeights || false,
-      hotWork:       r.seguridad_hse?.hotWork       || false,
-      confinedSpace: r.seguridad_hse?.confinedSpace || false,
-      scaffolding:   r.seguridad_hse?.scaffolding   || false,
-    });
+
+    if (r.contractor_sections) {
+      // New format — load directly
+      setContractorSections({
+        'HL-GISAICO':   r.contractor_sections['HL-GISAICO']   ?? DEFAULT_CONTRACTOR_DATA(),
+        'TECNITANQUES': r.contractor_sections['TECNITANQUES'] ?? DEFAULT_CONTRACTOR_DATA(),
+        'CYC':          r.contractor_sections['CYC']          ?? DEFAULT_CONTRACTOR_DATA(),
+      });
+    } else {
+      // Legacy format — migrate HL-GISAICO data
+      const hlData = DEFAULT_CONTRACTOR_DATA();
+      hlData.activities = r.activities || '';
+      hlData.checklist  = { workAtHeights: !!r.seguridad_hse?.workAtHeights, hotWork: !!r.seguridad_hse?.hotWork, confinedSpace: !!r.seguridad_hse?.confinedSpace, scaffolding: !!r.seguridad_hse?.scaffolding };
+      hlData.safetyInfo = r.safety_info ? { ...r.safety_info } : { ...EMPTY_SAFETY };
+      const old = r.contractors?.find(c => c.name === 'HL-GISAICO');
+      if (old?.breakdown) hlData.personnel = { mecanicos: old.breakdown.mecanicos ?? 0, soldadores: old.breakdown.soldadores ?? 0, auxiliares: old.breakdown.auxiliares ?? 0, armadores: old.breakdown.armadores ?? 0, inspectoresHSE: 0 };
+      if (old?.equipment) hlData.equipment = { grua: old.equipment.grua ?? 0, generador: old.equipment.generador ?? 0, andamios: old.equipment.andamios ?? 0, camionGrua: old.equipment.camionGrua ?? 0, torreGrua: old.equipment.torreGrua ?? 0, equipoEspecial: old.equipment.equipoEspecial ?? '' };
+      if (old?.lostHours) hlData.lostHours = { malClima: old.lostHours.malClima ?? 0, parosHSE: old.lostHours.parosHSE ?? 0, fallasTecnicas: old.lostHours.fallasTecnicas ?? 0 };
+
+      // Try to migrate TECNITANQUES and CYC from old contractors[]
+      const mapOld = (name: string): PerContractorData => {
+        const d  = DEFAULT_CONTRACTOR_DATA();
+        const oc = r.contractors?.find(c => c.name === name);
+        if (!oc) return d;
+        if (oc.breakdown) d.personnel = { mecanicos: oc.breakdown.mecanicos ?? 0, soldadores: oc.breakdown.soldadores ?? 0, auxiliares: oc.breakdown.auxiliares ?? 0, armadores: oc.breakdown.armadores ?? 0, inspectoresHSE: 0 };
+        if (oc.equipment) d.equipment = { grua: oc.equipment.grua ?? 0, generador: oc.equipment.generador ?? 0, andamios: oc.equipment.andamios ?? 0, camionGrua: oc.equipment.camionGrua ?? 0, torreGrua: oc.equipment.torreGrua ?? 0, equipoEspecial: oc.equipment.equipoEspecial ?? '' };
+        if (oc.lostHours) d.lostHours = { malClima: oc.lostHours.malClima ?? 0, parosHSE: oc.lostHours.parosHSE ?? 0, fallasTecnicas: oc.lostHours.fallasTecnicas ?? 0 };
+        return d;
+      };
+
+      setContractorSections({ 'HL-GISAICO': hlData, 'TECNITANQUES': mapOld('TECNITANQUES'), 'CYC': mapOld('CYC') });
+    }
+
+    setAdminActivities(r.admin_activities?.length ? r.admin_activities.map(a => ({ ...a })) : DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
     setEvidence(r.evidence || []);
-    setContractors(r.contractors?.length
-      ? (r.contractors as Partial<Contractor>[]).map(migrateContractor)
-      : [EMPTY_CONTRACTOR()]);
-    setSafetyInfo(r.safety_info ? { ...r.safety_info } : { ...EMPTY_SAFETY });
-    setAdminActivities(r.admin_activities?.length
-      ? r.admin_activities.map(a => ({ ...a }))
-      : DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a }))
-    );
+    setActiveContractorId('HL-GISAICO');
     setTab('meta');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -453,7 +694,7 @@ export default function DailyReportsPage() {
     }
   };
 
-  // ── Loading screen ──
+  // ── Loading ──
   if (!mounted || isUserLoading) {
     return (
       <div className="min-h-screen bg-[#0A0E14] flex items-center justify-center">
@@ -465,7 +706,7 @@ export default function DailyReportsPage() {
     );
   }
 
-  // ─── RENDER ──────────────────────────────────────────────────────────────
+  // ─── RENDER ──────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col min-h-screen bg-[#0A0E14]">
       <TopNav />
@@ -482,14 +723,14 @@ export default function DailyReportsPage() {
                     <ClipboardList className="w-4 h-4 text-cyan-400" />
                   </div>
                   REPORTES DIARIOS
-                  {anyRisk && (
+                  {anyRiskGlobal && (
                     <span className="animate-pulse text-[10px] bg-amber-500/20 border border-amber-500/40 text-amber-400 px-2 py-0.5 rounded-full">
                       ⚠️ RIESGOS ACTIVOS
                     </span>
                   )}
                 </h1>
                 <p className="text-[10px] font-mono text-cyan-500/40 uppercase tracking-[0.3em] mt-0.5">
-                  ARIS MINING — MIL24.001 | SINCRONIZACIÓN EN TIEMPO REAL
+                  ARIS MINING — MIL24.001 | LOWER MINING PROJECT
                 </p>
               </div>
               <div className="flex items-center gap-4">
@@ -512,11 +753,9 @@ export default function DailyReportsPage() {
           </header>
 
           {/* ── Body ── */}
-          <div className="p-6 max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[480px_1fr] gap-6">
+          <div className="p-6 max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[500px_1fr] gap-6">
 
-            {/* ════════════════════════════════ */}
-            {/*          FORM PANEL              */}
-            {/* ════════════════════════════════ */}
+            {/* ════════ FORM PANEL ════════ */}
             <div className="bg-[#0B1018] border border-primary/20 rounded-xl shadow-2xl overflow-hidden">
 
               {/* Form header */}
@@ -537,440 +776,383 @@ export default function DailyReportsPage() {
                 )}
               </div>
 
-              {/* HSE warning banner */}
+              {/* ══ CONTRACTOR SELECTOR ══ */}
+              <div className="px-5 pt-4 pb-3 border-b border-primary/10">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                    <Building2 className="w-3 h-3" /> Contratista Activo
+                  </Label>
+                  <span className="text-[9px] font-mono text-primary/30">
+                    👷 {totalPersonnelAll} total en campo
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {CONTRACTORS_CONFIG.map(cfg => {
+                    const cid   = cfg.id as ContractorId;
+                    const total = Object.values(contractorSections[cid].personnel).reduce((s, v) => s + v, 0);
+                    const isActive = activeContractorId === cid;
+                    return (
+                      <button
+                        key={cid}
+                        onClick={() => setActiveContractorId(cid)}
+                        className={`relative py-2.5 px-3 rounded-lg border text-left transition-all ${isActive ? cfg.activeCls : cfg.inactiveCls}`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm leading-none">{cfg.icon}</span>
+                          <span className="text-[9px] font-mono font-bold uppercase tracking-wider leading-tight">{cfg.label}</span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between">
+                          <span className={`text-[7px] font-mono uppercase opacity-60 ${isActive ? '' : 'text-primary/30'}`}>
+                            {cfg.sistema}
+                          </span>
+                          {total > 0 && (
+                            <span className="text-[8px] font-mono font-bold" style={{ color: cfg.color }}>
+                              {total}p
+                            </span>
+                          )}
+                        </div>
+                        {isActive && (
+                          <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.color }} />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Active contractor context banner */}
+                <div className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded bg-primary/5 border border-primary/10">
+                  <span className="text-sm">{activeCfg.icon}</span>
+                  <p className="text-[8px] font-mono text-primary/50">{activeCfg.description}</p>
+                </div>
+              </div>
+
+              {/* HSE warning banner (active contractor) */}
               {anyRisk && (
                 <div className="mx-5 mt-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex gap-3">
                   <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">⚠️ Permiso de Trabajo Requerido</p>
+                    <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+                      ⚠️ Permiso de Trabajo — {activeContractorId}
+                    </p>
                     <p className="text-[9px] text-amber-300/60 mt-0.5">
-                      Valide APT antes de iniciar. Activos:{' '}
-                      {(Object.entries(checklist) as [HSEKey, boolean][])
-                        .filter(([, v]) => v).map(([k]) => HSE_CONFIG[k].label).join(' · ')}
+                      {(Object.entries(activeData.checklist) as [HSEKey, boolean][]).filter(([, v]) => v).map(([k]) => HSE_CONFIG[k].label).join(' · ')}
                     </p>
                   </div>
                 </div>
               )}
 
-              {/* Tabs — 7 sections */}
+              {/* Tabs */}
               <div className="flex gap-0 border-b border-primary/10 mt-4 px-2 overflow-x-auto scrollbar-thin">
                 {([
-                  { id: 'meta',         label: 'Datos',       icon: FileText,      alert: false,    badge: 0 },
-                  { id: 'hse',          label: 'HSE',         icon: Shield,        alert: anyRisk,  badge: 0 },
-                  { id: 'recursos',     label: 'Recursos',    icon: Users,         alert: false,    badge: 0 },
-                  { id: 'contratistas', label: 'Contrat.',    icon: Building2,     alert: false,    badge: contractors.filter(c => c.name).length },
-                  { id: 'seguridad',    label: 'Seguridad',   icon: HardHat,       alert: (safetyInfo.incidents > 0), badge: 0 },
-                  { id: 'admin',        label: 'Avances',     icon: TrendingUp,    alert: false,    badge: 0 },
-                  { id: 'evidencia',    label: 'Evidencia',   icon: Camera,        alert: false,    badge: evidence.length },
+                  { id: 'meta',      label: 'Datos',    icon: FileText,   alert: false,    badge: 0 },
+                  { id: 'hse',       label: 'HSE',      icon: Shield,     alert: anyRisk,  badge: 0 },
+                  { id: 'recursos',  label: 'Personal', icon: Users,      alert: false,    badge: 0 },
+                  { id: 'equipos',   label: 'Equipos',  icon: Building2,  alert: false,    badge: 0 },
+                  { id: 'seguridad', label: 'Seguridad',icon: HardHat,    alert: (activeData.safetyInfo.incidents > 0), badge: activeData.safetyInfo.incidents },
+                  { id: 'admin',     label: 'Avances',  icon: TrendingUp, alert: false,    badge: 0 },
+                  { id: 'evidencia', label: 'Evidencia',icon: Camera,     alert: false,    badge: evidence.length },
                 ] as Array<{ id: TabId; label: string; icon: React.ElementType; alert: boolean; badge: number }>
                 ).map(t => (
                   <button
                     key={t.id}
                     onClick={() => setTab(t.id)}
                     className={`relative flex items-center gap-1 px-2.5 py-2 text-[9px] font-mono uppercase tracking-wider border-b-2 transition-all whitespace-nowrap ${
-                      tab === t.id
-                        ? 'border-cyan-500 text-cyan-400'
-                        : 'border-transparent text-primary/40 hover:text-primary/70'
+                      tab === t.id ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-primary/40 hover:text-primary/70'
                     }`}
                   >
                     <t.icon className="w-3 h-3 flex-shrink-0" />
                     {t.label}
                     {t.alert && <span className="absolute top-1 right-0.5 w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />}
-                    {t.badge > 0 && (
-                      <span className="ml-0.5 bg-cyan-500/20 text-cyan-400 text-[8px] px-1.5 rounded-full">{t.badge}</span>
-                    )}
+                    {t.badge > 0 && <span className="ml-0.5 bg-cyan-500/20 text-cyan-400 text-[8px] px-1.5 rounded-full">{t.badge}</span>}
                   </button>
                 ))}
               </div>
 
-              {/* Tab content */}
-              <div className="p-5 space-y-4">
+              {/* Tab content — key forces full remount when contractor changes, preventing stale DOM state */}
+              <div key={`${activeContractorId}-${tab}`} className="p-5 space-y-4">
 
-                {/* ── TAB: METADATA ── */}
+                {/* ── TAB: META (activities + weather) ── */}
                 {tab === 'meta' && (
                   <div className="space-y-4">
-                    {/* Frente selector */}
+                    {/* Clima — global */}
                     <div className="space-y-1.5">
-                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest">Frente / Contratista</Label>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {FRENTES.map(f => (
-                          <button
-                            key={f}
-                            onClick={() => setFrente(f)}
-                            className={`px-2 py-1.5 rounded text-[9px] font-mono uppercase border transition-all ${
-                              frente === f
-                                ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
-                                : 'bg-primary/5 border-primary/10 text-primary/40 hover:border-primary/30 hover:text-primary/70'
-                            }`}
-                          >
-                            {f}
-                          </button>
-                        ))}
-                      </div>
-                      {frente === 'OTRO' && (
-                        <Input
-                          value={customFrente}
-                          onChange={e => setCustomFrente(e.target.value)}
-                          placeholder="Nombre del contratista..."
-                          className="bg-primary/5 border-primary/10 font-mono text-xs h-9"
-                        />
-                      )}
-                    </div>
-
-                    {/* Weather */}
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest">Condición Climática</Label>
+                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest">Condición Climática — Global</Label>
                       <div className="grid grid-cols-3 gap-1.5">
                         {WEATHER_OPTIONS.map(w => (
-                          <button
-                            key={w}
-                            onClick={() => setWeather(w)}
-                            className={`px-2 py-1.5 rounded text-[9px] font-mono border transition-all ${
-                              weather === w
-                                ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
-                                : 'bg-primary/5 border-primary/10 text-primary/40 hover:border-primary/30'
-                            }`}
-                          >
+                          <button key={w} onClick={() => setWeather(w)}
+                            className={`px-2 py-1.5 rounded text-[9px] font-mono border transition-all ${weather === w ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400' : 'bg-primary/5 border-primary/10 text-primary/40 hover:border-primary/30'}`}>
                             {w}
                           </button>
                         ))}
                       </div>
                     </div>
 
-                    {/* Activities */}
+                    {/* Activities — per contractor */}
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center">
-                        <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest">Narrativa de Actividades *</Label>
-                        <span className="text-[9px] font-mono text-primary/30">{activities.length} car.</span>
+                        <Label className="text-[10px] font-mono uppercase tracking-widest flex items-center gap-1.5" style={{ color: activeCfg.color }}>
+                          <span>{activeCfg.icon}</span> Narrativa — {activeContractorId} *
+                        </Label>
+                        <span className="text-[9px] font-mono text-primary/30">{activeData.activities.length} car.</span>
                       </div>
                       <Textarea
-                        value={activities}
-                        onChange={e => setActivities(e.target.value)}
-                        placeholder="Describa con precisión los avances técnicos del día, equipos intervenidos, avance porcentual y observaciones críticas..."
-                        className="bg-primary/5 border-primary/10 text-xs min-h-[130px] resize-none font-mono leading-relaxed"
+                        value={activeData.activities}
+                        onChange={e => updateSection('activities', e.target.value)}
+                        placeholder={`Actividades ejecutadas por ${activeContractorId}. Una por línea para mejor formato en el reporte impreso…`}
+                        className="bg-primary/5 border-primary/10 text-xs min-h-[140px] resize-none font-mono leading-relaxed"
+                        style={{ borderColor: `${activeCfg.color}22` }}
                       />
+                      <p className="text-[8px] font-mono text-primary/25">
+                        💡 Tip: escriba una actividad por línea — el PDF las numerará automáticamente
+                      </p>
                     </div>
 
-                    <button
-                      onClick={() => setTab('hse')}
-                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider"
-                    >
+                    <button onClick={() => setTab('hse')}
+                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
                       Siguiente: Matriz HSE →
                     </button>
                   </div>
                 )}
 
-                {/* ── TAB: HSE ── */}
+                {/* ── TAB: HSE (per contractor) ── */}
                 {tab === 'hse' && (
                   <div className="space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base">{activeCfg.icon}</span>
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: activeCfg.color }}>
+                        Permisos de Trabajo — {activeContractorId}
+                      </span>
+                    </div>
                     {(Object.entries(HSE_CONFIG) as [HSEKey, typeof HSE_CONFIG.workAtHeights][]).map(([key, cfg]) => (
-                      <div
-                        key={key}
-                        className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
-                          checklist[key] ? cfg.bg : 'bg-primary/5 border-primary/10'
-                        }`}
-                      >
+                      <div key={key}
+                        className={`flex items-center justify-between p-3 rounded-lg border transition-all ${activeData.checklist[key] ? cfg.bg : 'bg-primary/5 border-primary/10'}`}>
                         <div className="flex items-center gap-3">
                           <span className="text-xl">{cfg.icon}</span>
                           <div>
                             <p className="text-xs font-mono font-bold uppercase text-primary/80">{cfg.label}</p>
                             <p className="text-[9px] text-primary/40 font-mono">
-                              {checklist[key] ? '⚡ Permiso Activo — APT Requerido' : 'Sin riesgo identificado'}
+                              {activeData.checklist[key] ? '⚡ Permiso Activo — APT Requerido' : 'Sin riesgo identificado'}
                             </p>
                           </div>
                         </div>
                         <Switch
-                          checked={checklist[key]}
-                          onCheckedChange={c => setChecklist(p => ({ ...p, [key]: c }))}
-                          className={checklist[key] ? 'data-[state=checked]:bg-amber-500' : ''}
+                          checked={activeData.checklist[key]}
+                          onCheckedChange={c => updateSection('checklist', { ...activeData.checklist, [key]: c })}
+                          className={activeData.checklist[key] ? 'data-[state=checked]:bg-amber-500' : ''}
                         />
                       </div>
                     ))}
                     {anyRisk && (
                       <div className="bg-red-500/5 border border-red-500/20 rounded p-2.5 text-center">
                         <p className="text-[10px] font-mono text-red-400 uppercase">
-                          🚨 {(Object.values(checklist) as boolean[]).filter(Boolean).length} Permiso(s) Activo(s)
+                          🚨 {(Object.values(activeData.checklist) as boolean[]).filter(Boolean).length} Permiso(s) Activo(s) — {activeContractorId}
                         </p>
                       </div>
                     )}
-                    <button
-                      onClick={() => setTab('recursos')}
-                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider"
-                    >
-                      Siguiente: Pool de Recursos →
+                    <button onClick={() => setTab('recursos')}
+                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
+                      Siguiente: Personal en Campo →
                     </button>
                   </div>
                 )}
 
-                {/* ── TAB: RECURSOS ── */}
+                {/* ── TAB: RECURSOS / PERSONAL (per contractor) ── */}
                 {tab === 'recursos' && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest">Pool de Recursos Humanos</Label>
-                      <Button
-                        variant="ghost" size="sm"
-                        onClick={() => setRecursos(p => [...p, { type: '', count: 0 }])}
-                        className="h-6 px-2 text-[10px] bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 font-mono"
-                      >
-                        <Plus className="w-3 h-3 mr-1" />Agregar
-                      </Button>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base">{activeCfg.icon}</span>
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: activeCfg.color }}>
+                        Personal en Campo — {activeContractorId}
+                      </span>
                     </div>
+
                     <div className="space-y-2">
-                      {recursos.map((r, i) => (
-                        <div key={i} className="flex items-center gap-2 group">
-                          <Input
-                            value={r.type}
-                            onChange={e => { const n = [...recursos]; n[i].type = e.target.value; setRecursos(n); }}
-                            placeholder="Tipo de recurso..."
-                            className="flex-1 bg-primary/5 border-primary/10 h-8 text-[11px] font-mono"
-                          />
-                          <Input
-                            type="number" min="0" value={r.count}
-                            onChange={e => { const n = [...recursos]; n[i].count = Math.max(0, parseInt(e.target.value) || 0); setRecursos(n); }}
-                            className="w-16 bg-primary/5 border-primary/10 h-8 text-[11px] text-center font-mono"
-                          />
-                          <Button
-                            variant="ghost" size="icon"
-                            onClick={() => setRecursos(p => p.filter((_, j) => j !== i))}
-                            className="h-8 w-8 text-red-500/30 hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
+                      {([
+                        ['mecanicos',      'Mecánicos Armadores',    '🔧'],
+                        ['soldadores',     'Soldadores Calificados', '🔥'],
+                        ['auxiliares',     'Auxiliares / Ayudantes', '👷'],
+                        ['armadores',      'Armadores Estructurales','🏗️'],
+                        ['inspectoresHSE', 'Inspectores HSE',        '⛑️'],
+                      ] as [keyof ContractorPersonnel, string, string][]).map(([field, label, icon]) => (
+                        <div key={field}
+                          className="flex items-center gap-3 bg-primary/5 border border-primary/10 rounded-lg px-3 py-2.5 group hover:border-primary/20 transition-all">
+                          <span className="text-base w-6 text-center">{icon}</span>
+                          <span className="flex-1 text-[10px] font-mono text-primary/70">{label}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => updateSection('personnel', { ...activeData.personnel, [field]: Math.max(0, activeData.personnel[field] - 1) })}
+                              className="w-6 h-6 rounded bg-primary/10 text-primary/60 text-xs font-bold hover:bg-primary/20 transition-colors"
+                            >−</button>
+                            <input
+                              type="number" min="0"
+                              value={activeData.personnel[field]}
+                              onChange={e => updateSection('personnel', { ...activeData.personnel, [field]: Math.max(0, parseInt(e.target.value) || 0) })}
+                              className="w-12 bg-transparent text-[13px] font-mono font-bold text-center outline-none"
+                              style={{ color: activeCfg.color }}
+                            />
+                            <button
+                              onClick={() => updateSection('personnel', { ...activeData.personnel, [field]: activeData.personnel[field] + 1 })}
+                              className="w-6 h-6 rounded bg-primary/10 text-primary/60 text-xs font-bold hover:bg-primary/20 transition-colors"
+                            >+</button>
+                          </div>
                         </div>
                       ))}
                     </div>
-                    <div className="bg-primary/5 rounded p-2 text-center">
-                      <p className="text-[9px] font-mono text-primary/40">
-                        Total: {recursos.reduce((s, r) => s + r.count, 0)} personas en campo (directos)
+
+                    {/* Personnel summary */}
+                    <div className="rounded-lg border p-3 space-y-1.5" style={{ borderColor: `${activeCfg.color}30`, backgroundColor: `${activeCfg.color}08` }}>
+                      <p className="text-[9px] font-mono uppercase tracking-wider" style={{ color: `${activeCfg.color}99` }}>
+                        📊 Resumen Personal — {activeContractorId}
                       </p>
+                      {(Object.entries(activeData.personnel) as [keyof ContractorPersonnel, number][]).filter(([, v]) => v > 0).map(([k, v]) => (
+                        <div key={k} className="flex justify-between text-[9px] font-mono">
+                          <span className="text-primary/50">{k}</span>
+                          <span className="font-bold" style={{ color: activeCfg.color }}>{v} pers.</span>
+                        </div>
+                      ))}
+                      <div className="border-t pt-1.5 flex justify-between text-[10px] font-bold font-mono" style={{ borderColor: `${activeCfg.color}20` }}>
+                        <span className="text-primary/60">TOTAL {activeContractorId}</span>
+                        <span style={{ color: activeCfg.color }}>
+                          {Object.values(activeData.personnel).reduce((s, v) => s + v, 0)} pers.
+                        </span>
+                      </div>
                     </div>
-                    <button
-                      onClick={() => setTab('contratistas')}
-                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider"
-                    >
-                      Siguiente: Contratistas →
+
+                    {/* Global summary */}
+                    <div className="bg-primary/5 border border-primary/10 rounded-lg p-3">
+                      <p className="text-[9px] font-mono text-primary/40 uppercase mb-2">Gran Total en Campo</p>
+                      {CONTRACTORS_CONFIG.map(cfg => {
+                        const t = Object.values(contractorSections[cfg.id as ContractorId].personnel).reduce((s, v) => s + v, 0);
+                        return t > 0 ? (
+                          <div key={cfg.id} className="flex justify-between text-[9px] font-mono mb-1">
+                            <span className="text-primary/50">{cfg.icon} {cfg.label}</span>
+                            <span className="font-bold" style={{ color: cfg.color }}>{t} pers.</span>
+                          </div>
+                        ) : null;
+                      })}
+                      <div className="border-t border-cyan-500/20 pt-1.5 flex justify-between text-[11px] font-bold font-mono">
+                        <span className="text-cyan-300">TOTAL GENERAL</span>
+                        <span className="text-cyan-400">{totalPersonnelAll} pers.</span>
+                      </div>
+                    </div>
+
+                    <button onClick={() => setTab('equipos')}
+                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
+                      Siguiente: Equipos y Maquinaria →
                     </button>
                   </div>
                 )}
 
-                {/* ── TAB: CONTRATISTAS ── */}
-                {tab === 'contratistas' && (
+                {/* ── TAB: EQUIPOS (per contractor) ── */}
+                {tab === 'equipos' && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest">Contratistas en Campo</Label>
-                      <Button
-                        variant="ghost" size="sm"
-                        onClick={() => setContractors(p => [...p, EMPTY_CONTRACTOR()])}
-                        className="h-6 px-2 text-[10px] bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 font-mono"
-                      >
-                        <Plus className="w-3 h-3 mr-1" />Agregar
-                      </Button>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base">{activeCfg.icon}</span>
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: activeCfg.color }}>
+                        Equipos en Campo — {activeContractorId}
+                      </span>
                     </div>
 
-                    <div className="space-y-4">
-                      {contractors.map((c, i) => {
-                        const bkTotal = c.breakdown.mecanicos + c.breakdown.soldadores + c.breakdown.auxiliares + c.breakdown.armadores;
-                        const totalLost = c.lostHours.malClima + c.lostHours.parosHSE + c.lostHours.fallasTecnicas;
-                        return (
-                          <div key={i} className="border border-amber-500/20 rounded-xl bg-primary/[0.03] overflow-hidden">
-                            {/* Contractor header */}
-                            <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/5 border-b border-amber-500/10">
-                              <Building2 className="w-3.5 h-3.5 text-amber-400/70 flex-shrink-0" />
-                              <input
-                                value={c.name}
-                                onChange={e => {
-                                  const n = [...contractors]; n[i] = { ...n[i], name: e.target.value }; setContractors(n);
-                                }}
-                                placeholder="Nombre empresa contratista..."
-                                className="flex-1 bg-transparent text-[11px] font-mono font-bold text-amber-300 placeholder-amber-500/30 outline-none"
-                              />
-                              <button
-                                onClick={() => setContractors(p => p.filter((_, j) => j !== i))}
-                                className="text-red-500/40 hover:text-red-500 transition-colors ml-1"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-
-                            <div className="p-3 space-y-3">
-                              {/* Personal breakdown */}
-                              <div>
-                                <p className="text-[9px] font-mono text-cyan-500/50 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                                  <Users className="w-3 h-3" /> Personal por Especialidad
-                                </p>
-                                <div className="grid grid-cols-2 gap-1.5">
-                                  {([
-                                    ['mecanicos',  'Mecánicos'],
-                                    ['soldadores', 'Soldadores'],
-                                    ['auxiliares', 'Auxiliares'],
-                                    ['armadores',  'Armadores'],
-                                  ] as [keyof ContractorPersonnel, string][]).map(([field, label]) => (
-                                    <div key={field} className="flex items-center gap-1.5 bg-primary/5 border border-primary/10 rounded px-2 py-1">
-                                      <span className="text-[9px] font-mono text-primary/50 flex-1">{label}</span>
-                                      <input
-                                        type="number" min="0"
-                                        value={c.breakdown[field]}
-                                        onChange={e => {
-                                          const n = [...contractors];
-                                          const val = Math.max(0, parseInt(e.target.value) || 0);
-                                          n[i] = { ...n[i], breakdown: { ...n[i].breakdown, [field]: val } };
-                                          const bd = n[i].breakdown;
-                                          n[i].personnel = bd.mecanicos + bd.soldadores + bd.auxiliares + bd.armadores;
-                                          setContractors(n);
-                                        }}
-                                        className="w-10 bg-transparent text-[11px] font-mono text-cyan-400 text-center outline-none"
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="mt-1.5 flex justify-between items-center px-1">
-                                  <span className="text-[9px] font-mono text-primary/40">Total personal</span>
-                                  <span className="text-[11px] font-bold font-mono text-amber-400">{bkTotal} pers.</span>
-                                </div>
-                              </div>
-
-                              {/* Equipment */}
-                              <div>
-                                <p className="text-[9px] font-mono text-cyan-500/50 uppercase tracking-wider mb-1.5">⚙️ Equipos en Campo</p>
-                                <div className="grid grid-cols-2 gap-1.5">
-                                  {([
-                                    ['grua',       'Grúa (und)'],
-                                    ['generador',  'Generador (und)'],
-                                    ['andamios',   'Andamios (m³)'],
-                                    ['camionGrua', 'Camión Grúa (und)'],
-                                    ['torreGrua',  'Torre Grúa (und)'],
-                                  ] as [keyof ContractorEquipment, string][]).filter(([f]) => f !== 'equipoEspecial').map(([field, label]) => (
-                                    <div key={field} className="flex items-center gap-1.5 bg-primary/5 border border-primary/10 rounded px-2 py-1">
-                                      <span className="text-[9px] font-mono text-primary/50 flex-1">{label}</span>
-                                      <input
-                                        type="number" min="0"
-                                        value={c.equipment[field as Exclude<keyof ContractorEquipment, 'equipoEspecial'>] as number}
-                                        onChange={e => {
-                                          const n = [...contractors];
-                                          n[i] = { ...n[i], equipment: { ...n[i].equipment, [field]: Math.max(0, parseInt(e.target.value) || 0) } };
-                                          setContractors(n);
-                                        }}
-                                        className="w-10 bg-transparent text-[11px] font-mono text-emerald-400 text-center outline-none"
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="mt-1.5 flex items-center gap-1.5 bg-primary/5 border border-primary/10 rounded px-2 py-1">
-                                  <span className="text-[9px] font-mono text-primary/50 w-28">Equipo Especial</span>
-                                  <input
-                                    value={c.equipment.equipoEspecial}
-                                    onChange={e => {
-                                      const n = [...contractors];
-                                      n[i] = { ...n[i], equipment: { ...n[i].equipment, equipoEspecial: e.target.value } };
-                                      setContractors(n);
-                                    }}
-                                    placeholder="Descripción..."
-                                    className="flex-1 bg-transparent text-[11px] font-mono text-emerald-400 placeholder-primary/20 outline-none"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Lost hours */}
-                              <div>
-                                <p className="text-[9px] font-mono text-red-400/60 uppercase tracking-wider mb-1.5">⏱ Horas Perdidas</p>
-                                <div className="grid grid-cols-3 gap-1.5">
-                                  {([
-                                    ['malClima',       'Mal Clima', 'text-blue-400'],
-                                    ['parosHSE',       'Paros HSE', 'text-amber-400'],
-                                    ['fallasTecnicas', 'Falla Téc.', 'text-red-400'],
-                                  ] as [keyof ContractorLostHours, string, string][]).map(([field, label, color]) => (
-                                    <div key={field} className="bg-primary/5 border border-primary/10 rounded px-2 py-1.5 text-center">
-                                      <p className="text-[8px] font-mono text-primary/40 mb-1">{label}</p>
-                                      <div className="flex items-center justify-center gap-1">
-                                        <button
-                                          onClick={() => { const n=[...contractors]; n[i]={...n[i],lostHours:{...n[i].lostHours,[field]:Math.max(0,c.lostHours[field]-0.5)}}; setContractors(n); }}
-                                          className="w-4 h-4 rounded bg-primary/10 text-primary/50 text-[10px] font-bold hover:bg-primary/20"
-                                        >-</button>
-                                        <input
-                                          type="number" min="0" step="0.5"
-                                          value={c.lostHours[field]}
-                                          onChange={e => { const n=[...contractors]; n[i]={...n[i],lostHours:{...n[i].lostHours,[field]:Math.max(0,parseFloat(e.target.value)||0)}}; setContractors(n); }}
-                                          className={`w-8 bg-transparent text-[11px] font-mono font-bold ${color} text-center outline-none`}
-                                        />
-                                        <button
-                                          onClick={() => { const n=[...contractors]; n[i]={...n[i],lostHours:{...n[i].lostHours,[field]:c.lostHours[field]+0.5}}; setContractors(n); }}
-                                          className="w-4 h-4 rounded bg-primary/10 text-primary/50 text-[10px] font-bold hover:bg-primary/20"
-                                        >+</button>
-                                      </div>
-                                      <p className="text-[8px] font-mono text-primary/30 mt-0.5">hrs</p>
-                                    </div>
-                                  ))}
-                                </div>
-                                {totalLost > 0 && (
-                                  <p className="text-[9px] font-mono text-red-400/70 mt-1 text-right">
-                                    Total horas perdidas: <span className="font-bold text-red-400">{totalLost.toFixed(1)} h</span>
-                                  </p>
-                                )}
-                              </div>
-                            </div>
+                    {/* Equipment */}
+                    <div className="space-y-2">
+                      {([
+                        ['grua',       'Grúa (unidades)',      '🏗️'],
+                        ['generador',  'Generador (unidades)', '⚡'],
+                        ['andamios',   'Andamios (m³)',        '🪜'],
+                        ['camionGrua', 'Camión Grúa (und)',    '🚛'],
+                        ['torreGrua',  'Torre Grúa (und)',     '🗼'],
+                      ] as [Exclude<keyof ContractorEquipment, 'equipoEspecial'>, string, string][]).map(([field, label, icon]) => (
+                        <div key={field}
+                          className="flex items-center gap-3 bg-primary/5 border border-primary/10 rounded-lg px-3 py-2 group hover:border-primary/20 transition-all">
+                          <span className="text-base w-6 text-center">{icon}</span>
+                          <span className="flex-1 text-[10px] font-mono text-primary/60">{label}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button onClick={() => updateSection('equipment', { ...activeData.equipment, [field]: Math.max(0, (activeData.equipment[field] as number) - 1) })}
+                              className="w-6 h-6 rounded bg-primary/10 text-primary/60 text-xs font-bold hover:bg-primary/20">−</button>
+                            <input
+                              type="number" min="0"
+                              value={activeData.equipment[field] as number}
+                              onChange={e => updateSection('equipment', { ...activeData.equipment, [field]: Math.max(0, parseInt(e.target.value) || 0) })}
+                              className="w-12 bg-transparent text-[13px] font-mono font-bold text-emerald-400 text-center outline-none"
+                            />
+                            <button onClick={() => updateSection('equipment', { ...activeData.equipment, [field]: (activeData.equipment[field] as number) + 1 })}
+                              className="w-6 h-6 rounded bg-primary/10 text-primary/60 text-xs font-bold hover:bg-primary/20">+</button>
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
+                      <div className="flex items-center gap-3 bg-primary/5 border border-primary/10 rounded-lg px-3 py-2">
+                        <span className="text-base w-6 text-center">🔩</span>
+                        <span className="text-[10px] font-mono text-primary/60 w-28">Equipo Especial</span>
+                        <input
+                          value={activeData.equipment.equipoEspecial}
+                          onChange={e => updateSection('equipment', { ...activeData.equipment, equipoEspecial: e.target.value })}
+                          placeholder="Descripción libre..."
+                          className="flex-1 bg-transparent text-[11px] font-mono text-emerald-400 placeholder-primary/20 outline-none"
+                        />
+                      </div>
                     </div>
 
-                    {contractors.some(c => c.name) && (
-                      <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg p-3 space-y-1.5">
-                        <p className="text-[9px] font-mono text-amber-400/70 uppercase tracking-wider">📊 Resumen Campo</p>
-                        {contractors.filter(c => c.name).map((c, i) => (
-                          <div key={i} className="flex justify-between text-[9px] font-mono">
-                            <span className="text-primary/60 truncate max-w-[180px]">{c.name}</span>
-                            <span className="text-amber-400 font-bold">{c.personnel} pers.</span>
+                    {/* Lost Hours */}
+                    <div>
+                      <p className="text-[9px] font-mono text-red-400/60 uppercase tracking-wider mb-2">⏱ Horas Perdidas — {activeContractorId}</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {([
+                          ['malClima',       'Mal Clima',   'text-blue-400',  '#3B82F6'],
+                          ['parosHSE',       'Paros HSE',   'text-amber-400', '#F59E0B'],
+                          ['fallasTecnicas', 'Falla Téc.',  'text-red-400',   '#EF4444'],
+                        ] as [keyof ContractorLostHours, string, string, string][]).map(([field, label, cls, hex]) => (
+                          <div key={field} className="bg-primary/5 border border-primary/10 rounded-lg px-2 py-2.5 text-center">
+                            <p className="text-[8px] font-mono text-primary/40 mb-1.5">{label}</p>
+                            <div className="flex items-center justify-center gap-1">
+                              <button onClick={() => updateSection('lostHours', { ...activeData.lostHours, [field]: Math.max(0, activeData.lostHours[field] - 0.5) })}
+                                className="w-5 h-5 rounded bg-primary/10 text-primary/50 text-[10px] font-bold hover:bg-primary/20">−</button>
+                              <input
+                                type="number" min="0" step="0.5"
+                                value={activeData.lostHours[field]}
+                                onChange={e => updateSection('lostHours', { ...activeData.lostHours, [field]: Math.max(0, parseFloat(e.target.value) || 0) })}
+                                className={`w-10 bg-transparent text-[13px] font-mono font-bold ${cls} text-center outline-none`}
+                              />
+                              <button onClick={() => updateSection('lostHours', { ...activeData.lostHours, [field]: activeData.lostHours[field] + 0.5 })}
+                                className="w-5 h-5 rounded bg-primary/10 text-primary/50 text-[10px] font-bold hover:bg-primary/20">+</button>
+                            </div>
+                            <p className="text-[8px] font-mono text-primary/30 mt-0.5">hrs</p>
                           </div>
                         ))}
-                        <div className="border-t border-amber-500/20 pt-1.5 space-y-0.5">
-                          <div className="flex justify-between text-[9px] font-mono font-bold">
-                            <span className="text-primary/50">TOTAL CONTRATISTAS</span>
-                            <span className="text-amber-400">{contractors.reduce((s, c) => s + c.personnel, 0)} pers.</span>
-                          </div>
-                          <div className="flex justify-between text-[9px] font-mono">
-                            <span className="text-primary/50">+ Personal Directo</span>
-                            <span className="text-cyan-400">{recursos.reduce((s, r) => s + r.count, 0)} pers.</span>
-                          </div>
-                          <div className="bg-cyan-500/10 border border-cyan-500/20 rounded px-2 py-1 flex justify-between text-[9px] font-mono font-bold">
-                            <span className="text-cyan-300">GRAN TOTAL EN CAMPO</span>
-                            <span className="text-cyan-400 text-[11px]">
-                              {contractors.reduce((s, c) => s + c.personnel, 0) + recursos.reduce((s, r) => s + r.count, 0)} pers.
-                            </span>
-                          </div>
-                          {contractors.some(c => c.lostHours.malClima + c.lostHours.parosHSE + c.lostHours.fallasTecnicas > 0) && (
-                            <div className="bg-red-500/5 border border-red-500/20 rounded px-2 py-1 flex justify-between text-[9px] font-mono">
-                              <span className="text-red-400/70">TOTAL HORAS PERDIDAS</span>
-                              <span className="text-red-400 font-bold">
-                                {contractors.reduce((s, c) => s + c.lostHours.malClima + c.lostHours.parosHSE + c.lostHours.fallasTecnicas, 0).toFixed(1)} h
-                              </span>
-                            </div>
-                          )}
-                        </div>
                       </div>
-                    )}
+                      {(activeData.lostHours.malClima + activeData.lostHours.parosHSE + activeData.lostHours.fallasTecnicas) > 0 && (
+                        <p className="text-[9px] font-mono text-red-400/70 mt-1 text-right">
+                          Total perdidas: <span className="font-bold text-red-400">
+                            {(activeData.lostHours.malClima + activeData.lostHours.parosHSE + activeData.lostHours.fallasTecnicas).toFixed(1)} h
+                          </span>
+                        </p>
+                      )}
+                    </div>
 
-                    <button
-                      onClick={() => setTab('seguridad')}
-                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider"
-                    >
+                    <button onClick={() => setTab('seguridad')}
+                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
                       Siguiente: Seguridad Industrial →
                     </button>
                   </div>
                 )}
 
-                {/* ── TAB: SEGURIDAD INDUSTRIAL ── */}
+                {/* ── TAB: SEGURIDAD (per contractor) ── */}
                 {tab === 'seguridad' && (
                   <div className="space-y-3">
-                    {/* Incident counters */}
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base">{activeCfg.icon}</span>
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: activeCfg.color }}>
+                        Seguridad y MA — {activeContractorId}
+                      </span>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3 space-y-2">
                         <p className="text-[9px] font-mono text-red-400/70 uppercase tracking-wider flex items-center gap-1">
                           <AlertTriangle className="w-3 h-3" /> Incidentes
                         </p>
                         <div className="flex items-center gap-2">
-                          <button onClick={() => setSafetyInfo(p => ({ ...p, incidents: Math.max(0, p.incidents - 1) }))} className="w-6 h-6 rounded bg-red-500/10 text-red-400 text-xs font-bold hover:bg-red-500/20 transition-colors">-</button>
-                          <span className="flex-1 text-center text-lg font-bold font-mono text-red-400">{safetyInfo.incidents}</span>
-                          <button onClick={() => setSafetyInfo(p => ({ ...p, incidents: p.incidents + 1 }))} className="w-6 h-6 rounded bg-red-500/10 text-red-400 text-xs font-bold hover:bg-red-500/20 transition-colors">+</button>
+                          <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, incidents: Math.max(0, activeData.safetyInfo.incidents - 1) })} className="w-6 h-6 rounded bg-red-500/10 text-red-400 text-xs font-bold hover:bg-red-500/20">-</button>
+                          <span className="flex-1 text-center text-lg font-bold font-mono text-red-400">{activeData.safetyInfo.incidents}</span>
+                          <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, incidents: activeData.safetyInfo.incidents + 1 })} className="w-6 h-6 rounded bg-red-500/10 text-red-400 text-xs font-bold hover:bg-red-500/20">+</button>
                         </div>
                       </div>
                       <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-2">
@@ -978,77 +1160,67 @@ export default function DailyReportsPage() {
                           <AlertCircle className="w-3 h-3" /> Near Miss
                         </p>
                         <div className="flex items-center gap-2">
-                          <button onClick={() => setSafetyInfo(p => ({ ...p, nearMisses: Math.max(0, p.nearMisses - 1) }))} className="w-6 h-6 rounded bg-amber-500/10 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-colors">-</button>
-                          <span className="flex-1 text-center text-lg font-bold font-mono text-amber-400">{safetyInfo.nearMisses}</span>
-                          <button onClick={() => setSafetyInfo(p => ({ ...p, nearMisses: p.nearMisses + 1 }))} className="w-6 h-6 rounded bg-amber-500/10 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-colors">+</button>
+                          <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, nearMisses: Math.max(0, activeData.safetyInfo.nearMisses - 1) })} className="w-6 h-6 rounded bg-amber-500/10 text-amber-400 text-xs font-bold hover:bg-amber-500/20">-</button>
+                          <span className="flex-1 text-center text-lg font-bold font-mono text-amber-400">{activeData.safetyInfo.nearMisses}</span>
+                          <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, nearMisses: activeData.safetyInfo.nearMisses + 1 })} className="w-6 h-6 rounded bg-amber-500/10 text-amber-400 text-xs font-bold hover:bg-amber-500/20">+</button>
                         </div>
                       </div>
                     </div>
 
-                    {/* Safety narrative */}
                     <div className="space-y-1.5">
                       <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
-                        <MessageSquare className="w-3 h-3" /> Observaciones de Seguridad Industrial
+                        <MessageSquare className="w-3 h-3" /> Observaciones de Seguridad
                       </Label>
                       <Textarea
-                        value={safetyInfo.comments}
-                        onChange={e => setSafetyInfo(p => ({ ...p, comments: e.target.value }))}
-                        placeholder="Describa el desempeño en seguridad, condiciones del sitio, comportamientos observados, medidas correctivas adoptadas..."
-                        className="bg-primary/5 border-amber-500/20 text-xs min-h-[110px] resize-none font-mono leading-relaxed"
+                        value={activeData.safetyInfo.comments}
+                        onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, comments: e.target.value })}
+                        placeholder="Desempeño en seguridad, condiciones del sitio, medidas correctivas…"
+                        className="bg-primary/5 border-amber-500/20 text-xs min-h-[90px] resize-none font-mono leading-relaxed"
                       />
                     </div>
-
-                    {/* EPP */}
                     <div className="space-y-1.5">
                       <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
                         <HardHat className="w-3 h-3" /> Observaciones EPP
                       </Label>
                       <Textarea
-                        value={safetyInfo.eppObservations}
-                        onChange={e => setSafetyInfo(p => ({ ...p, eppObservations: e.target.value }))}
-                        placeholder="Estado y cumplimiento del equipo de protección personal en campo..."
+                        value={activeData.safetyInfo.eppObservations}
+                        onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, eppObservations: e.target.value })}
+                        placeholder="Estado y cumplimiento del EPP en campo…"
                         className="bg-primary/5 border-primary/10 text-xs min-h-[60px] resize-none font-mono"
                       />
                     </div>
-
-                    {/* Lessons learned */}
                     <div className="space-y-1.5">
                       <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
                         <BookOpen className="w-3 h-3" /> Lecciones Aprendidas HSE
                       </Label>
                       <Textarea
-                        value={safetyInfo.lessonsLearned}
-                        onChange={e => setSafetyInfo(p => ({ ...p, lessonsLearned: e.target.value }))}
-                        placeholder="Lecciones aprendidas, puntos de mejora, buenas prácticas destacadas del turno..."
+                        value={activeData.safetyInfo.lessonsLearned}
+                        onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, lessonsLearned: e.target.value })}
+                        placeholder="Lecciones aprendidas, puntos de mejora, buenas prácticas…"
                         className="bg-primary/5 border-cyan-500/20 text-xs min-h-[60px] resize-none font-mono"
                       />
                     </div>
 
-                    <button
-                      onClick={() => setTab('admin')}
-                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider"
-                    >
+                    <button onClick={() => setTab('admin')}
+                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
                       Siguiente: Avances Administrativos →
                     </button>
                   </div>
                 )}
 
-                {/* ── TAB: AVANCES ADMINISTRATIVOS ── */}
+                {/* ── TAB: ADMIN (global) ── */}
                 {tab === 'admin' && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
-                        <TrendingUp className="w-3 h-3" /> Actividades Administrativas
+                        <TrendingUp className="w-3 h-3" /> Actividades Administrativas — Global
                       </Label>
-                      <Button
-                        variant="ghost" size="sm"
+                      <Button variant="ghost" size="sm"
                         onClick={() => setAdminActivities(p => [...p, { name: '', progress: 0 }])}
-                        className="h-6 px-2 text-[10px] bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 font-mono"
-                      >
+                        className="h-6 px-2 text-[10px] bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 font-mono">
                         <Plus className="w-3 h-3 mr-1" />Nueva
                       </Button>
                     </div>
-
                     <div className="space-y-3">
                       {adminActivities.map((act, i) => {
                         const pct = act.progress;
@@ -1062,19 +1234,14 @@ export default function DailyReportsPage() {
                                 placeholder="Nombre de la actividad..."
                                 className="flex-1 bg-transparent text-[11px] font-mono text-primary/80 placeholder-primary/25 outline-none"
                               />
-                              <button
-                                onClick={() => setAdminActivities(p => p.filter((_, j) => j !== i))}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500/30 hover:text-red-500"
-                              >
+                              <button onClick={() => setAdminActivities(p => p.filter((_, j) => j !== i))}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500/30 hover:text-red-500">
                                 <Trash2 className="w-3 h-3" />
                               </button>
                             </div>
                             <div className="flex items-center gap-3">
                               <div className="flex-1 h-2 bg-primary/10 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all duration-300"
-                                  style={{ width: `${pct}%`, backgroundColor: barColor }}
-                                />
+                                <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: barColor }} />
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <input
@@ -1092,49 +1259,37 @@ export default function DailyReportsPage() {
                         );
                       })}
                     </div>
-
                     {adminActivities.length > 0 && (
                       <div className="bg-primary/5 border border-primary/10 rounded-lg p-3">
                         <div className="flex justify-between items-center">
-                          <span className="text-[9px] font-mono text-primary/40 uppercase">Avance Promedio General</span>
+                          <span className="text-[9px] font-mono text-primary/40 uppercase">Avance Promedio</span>
                           <span className="text-[13px] font-bold font-mono text-cyan-400">
                             {Math.round(adminActivities.reduce((s, a) => s + a.progress, 0) / adminActivities.length)}%
                           </span>
                         </div>
                         <div className="mt-2 h-1.5 bg-primary/10 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all"
-                            style={{ width: `${Math.round(adminActivities.reduce((s, a) => s + a.progress, 0) / adminActivities.length)}%` }}
-                          />
+                          <div className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all"
+                            style={{ width: `${Math.round(adminActivities.reduce((s, a) => s + a.progress, 0) / adminActivities.length)}%` }} />
                         </div>
                       </div>
                     )}
-
-                    <button
-                      onClick={() => setTab('evidencia')}
-                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider"
-                    >
+                    <button onClick={() => setTab('evidencia')}
+                      className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
                       Siguiente: Bóveda de Evidencia →
                     </button>
                   </div>
                 )}
 
-                {/* ── TAB: EVIDENCIA ── */}
+                {/* ── TAB: EVIDENCIA (global) ── */}
                 {tab === 'evidencia' && (
                   <div className="space-y-3">
-                    <div
-                      className="border-2 border-dashed border-primary/20 bg-primary/[0.02] rounded-lg p-6 text-center hover:bg-primary/5 hover:border-cyan-500/30 transition-all cursor-pointer group"
-                      onClick={() => fileRef.current?.click()}
-                    >
+                    <div className="border-2 border-dashed border-primary/20 bg-primary/[0.02] rounded-lg p-6 text-center hover:bg-primary/5 hover:border-cyan-500/30 transition-all cursor-pointer group"
+                      onClick={() => fileRef.current?.click()}>
                       <input type="file" multiple accept="image/*,.pdf" ref={fileRef} className="hidden" onChange={handleUpload} />
                       <Camera className="w-7 h-7 text-primary/30 mx-auto mb-2 group-hover:text-cyan-400 transition-colors" />
                       <p className="text-[10px] font-mono text-primary/40 uppercase tracking-wider">Añadir Fotos / PDFs</p>
-                      <p className="text-[9px] font-mono text-primary/25 mt-1">
-                        {'< 200KB → Base64 | Grande / PDF → Firebase Storage'}
-                      </p>
+                      <p className="text-[9px] font-mono text-primary/25 mt-1">{'< 200KB → Base64 | Grande / PDF → Firebase Storage'}</p>
                     </div>
-
-                    {/* Upload progress */}
                     {Object.entries(progress).map(([k, pct]) => (
                       <div key={k} className="space-y-1">
                         <div className="flex justify-between text-[9px] font-mono text-primary/40">
@@ -1146,28 +1301,25 @@ export default function DailyReportsPage() {
                         </div>
                       </div>
                     ))}
-
-                    {/* Evidence grid */}
                     {evidence.length > 0 && (
                       <div className="grid grid-cols-4 gap-2">
                         {evidence.map((ev, idx) => (
                           <div key={idx} className="relative group rounded-lg border border-primary/20 overflow-hidden aspect-square bg-black">
                             {ev.type === 'photo' ? (
                               /* eslint-disable-next-line @next/next/no-img-element */
-                              <img src={ev.urlOrBase64} alt={ev.name} loading="lazy" decoding="async" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                              <img src={ev.urlOrBase64} alt={ev.name} loading="lazy" decoding="async"
+                                className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
                             ) : (
                               <div className="w-full h-full flex flex-col items-center justify-center bg-primary/10">
                                 <FileText className="w-5 h-5 text-cyan-500" />
                                 <span className="text-[7px] font-mono text-cyan-500/50 mt-1 px-1 text-center truncate w-full">{ev.name}</span>
                               </div>
                             )}
-                            <div className={`absolute bottom-1 left-1 text-[7px] font-mono px-1 rounded ${ev.uploadMethod === 'storage' ? 'bg-blue-500/80 text-white' : 'bg-green-600/80 text-white'}`}>
+                            <div className={`absolute bottom-1 left-1 text-[7px] font-mono px-1 rounded ${ev.uploadMethod === 'storage' ? 'bg-blue-500/80' : 'bg-green-600/80'} text-white`}>
                               {ev.uploadMethod === 'storage' ? '☁️' : '💾'}
                             </div>
-                            <button
-                              onClick={() => setEvidence(p => p.filter((_, j) => j !== idx))}
-                              className="absolute top-1 right-1 bg-red-500/90 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
+                            <button onClick={() => setEvidence(p => p.filter((_, j) => j !== idx))}
+                              className="absolute top-1 right-1 bg-red-500/90 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                               <Trash2 className="w-2.5 h-2.5" />
                             </button>
                           </div>
@@ -1178,13 +1330,56 @@ export default function DailyReportsPage() {
                 )}
               </div>
 
+              {/* ── Data summary per contractor (pre-submit confirmation) ── */}
+              <div className="px-5 pb-2 pt-3 border-t border-primary/10">
+                <p className="text-[8px] font-mono text-primary/30 uppercase tracking-widest mb-2">
+                  📋 Resumen de datos capturados
+                </p>
+                <div className="space-y-1.5">
+                  {CONTRACTORS_CONFIG.map(cfg => {
+                    const cid  = cfg.id as ContractorId;
+                    const d    = contractorSections[cid];
+                    const acts = d.activities.trim().split('\n').filter(Boolean).length;
+                    const pers = Object.values(d.personnel).reduce((s, v) => s + v, 0);
+                    const hse  = Object.values(d.checklist).filter(Boolean).length;
+                    const hasSafety = d.safetyInfo.comments.trim().length > 0 || d.safetyInfo.incidents > 0;
+                    const hasData = acts > 0 || pers > 0;
+                    return (
+                      <div key={cid}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${
+                          hasData
+                            ? `border-[${cfg.color}33]`
+                            : 'border-primary/10 opacity-40'
+                        }`}
+                        style={{ borderColor: hasData ? `${cfg.color}30` : undefined, backgroundColor: hasData ? `${cfg.color}06` : undefined }}
+                      >
+                        <button
+                          onClick={() => setActiveContractorId(cid)}
+                          className="flex items-center gap-1.5 flex-1 text-left"
+                        >
+                          <span>{cfg.icon}</span>
+                          <span className="font-bold truncate" style={{ color: hasData ? cfg.color : undefined }}>
+                            {cfg.label}
+                          </span>
+                          <span className="text-primary/30 ml-0.5 text-[7px]">{cfg.sistema}</span>
+                        </button>
+                        <div className="flex items-center gap-2 text-[8px]">
+                          {acts > 0   && <span className="text-green-400/80">✅ {acts} activ.</span>}
+                          {pers > 0   && <span className="text-cyan-400/80">👷 {pers}p</span>}
+                          {hse > 0    && <span className="text-amber-400/80">⚠️ {hse} HSE</span>}
+                          {hasSafety  && <span className="text-purple-400/80">🛡️ seg.</span>}
+                          {!hasData   && <span className="text-primary/25">sin datos</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Action buttons */}
               <div className="px-5 pb-5 pt-2 border-t border-primary/10 space-y-2">
-                <Button
-                  onClick={handleSubmit}
-                  disabled={submitting || drafting}
-                  className="w-full bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 font-mono uppercase tracking-widest transition-all"
-                >
+                <Button onClick={handleSubmit} disabled={submitting || drafting}
+                  className="w-full bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 font-mono uppercase tracking-widest transition-all">
                   {submitting
                     ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Anclando…</>
                     : editing
@@ -1192,12 +1387,8 @@ export default function DailyReportsPage() {
                       : <><Save className="w-4 h-4 mr-2" />Sincronizar Folio</>}
                 </Button>
                 {!editing && (
-                  <Button
-                    onClick={handleDraft}
-                    disabled={submitting || drafting}
-                    variant="outline"
-                    className="w-full border-primary/20 text-primary/50 hover:border-amber-500/40 hover:text-amber-400 font-mono uppercase tracking-widest text-xs"
-                  >
+                  <Button onClick={handleDraft} disabled={submitting || drafting} variant="outline"
+                    className="w-full border-primary/20 text-primary/50 hover:border-amber-500/40 hover:text-amber-400 font-mono uppercase tracking-widest text-xs">
                     {drafting ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : <Save className="w-3 h-3 mr-2" />}
                     Guardar Borrador
                   </Button>
@@ -1205,31 +1396,21 @@ export default function DailyReportsPage() {
               </div>
             </div>
 
-            {/* ════════════════════════════════ */}
-            {/*         HISTORY PANEL            */}
-            {/* ════════════════════════════════ */}
+            {/* ════════ HISTORY PANEL ════════ */}
             <div className="space-y-4">
               {/* Search + count */}
               <div className="flex items-center gap-3">
-                <Input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
+                <Input value={search} onChange={e => setSearch(e.target.value)}
                   placeholder="Buscar por ID, frente, actividad…"
-                  className="flex-1 bg-[#0B1018] border-primary/20 text-primary/80 placeholder:text-primary/30 h-9 text-xs font-mono"
-                />
+                  className="flex-1 bg-[#0B1018] border-primary/20 text-primary/80 placeholder:text-primary/30 h-9 text-xs font-mono" />
                 <div className="bg-[#0B1018] border border-primary/20 rounded px-3 py-1.5 text-center min-w-[52px]">
                   <p className="text-[9px] font-mono text-primary/30 uppercase">Total</p>
                   <p className="text-base font-bold text-cyan-400 font-mono leading-none">{reports?.length ?? 0}</p>
                 </div>
               </div>
 
-              {reports && reports.length > 0 && (
-                <MonthlyDashboard reports={reports} />
-              )}
-
-              {reports && reports.length > 0 && (
-                <ContractorActivityDashboard reports={reports} projectId={ACTIVE_PROJECT} />
-              )}
+              {reports && reports.length > 0 && <MonthlyDashboard reports={reports} />}
+              {reports && reports.length > 0 && <ContractorActivityDashboard reports={reports} projectId={ACTIVE_PROJECT} />}
 
               {/* Report list */}
               <div className="space-y-3 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
@@ -1249,25 +1430,21 @@ export default function DailyReportsPage() {
                   </div>
                 ) : (
                   filtered.map(report => {
-                    const open     = expanded === report.id;
-                    const isDraft  = report.metadata?.status === 'draft';
-                    const hasRisk  = report.seguridad_hse?.hasActiveRisk;
+                    const open    = expanded === report.id;
+                    const isDraft = report.metadata?.status === 'draft';
+                    const hasRisk = report.seguridad_hse?.hasActiveRisk;
                     const isAuthor = user?.uid === report.metadata?.authorUid;
 
+                    // Detect if report has multi-contractor data
+                    const hasNewFormat = !!report.contractor_sections;
+
                     return (
-                      <div
-                        key={report.id}
+                      <div key={report.id}
                         className={`bg-[#05080C] border rounded-xl shadow-lg transition-all group ${
-                          isDraft  ? 'border-amber-500/20' :
-                          hasRisk  ? 'border-orange-500/15 hover:border-orange-500/30' :
-                                     'border-primary/10 hover:border-cyan-500/20'
-                        }`}
-                      >
-                        {/* Card header (clickable to expand) */}
-                        <div
-                          className="p-4 cursor-pointer"
-                          onClick={() => setExpanded(open ? null : report.id)}
-                        >
+                          isDraft ? 'border-amber-500/20' : hasRisk ? 'border-orange-500/15 hover:border-orange-500/30' : 'border-primary/10 hover:border-cyan-500/20'
+                        }`}>
+                        {/* Card header */}
+                        <div className="p-4 cursor-pointer" onClick={() => setExpanded(open ? null : report.id)}>
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
@@ -1283,7 +1460,12 @@ export default function DailyReportsPage() {
                                 )}
                                 {hasRisk && (
                                   <span className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 uppercase flex items-center gap-1">
-                                    <AlertTriangle className="w-2 h-2" />HSE ACTIVO
+                                    <AlertTriangle className="w-2 h-2" />HSE
+                                  </span>
+                                )}
+                                {hasNewFormat && (
+                                  <span className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 uppercase">
+                                    3 CONTRATISTAS
                                   </span>
                                 )}
                               </div>
@@ -1293,39 +1475,46 @@ export default function DailyReportsPage() {
                                   : '—'}
                                 {' · '}
                                 <span className="text-cyan-500/60">{report.metadata?.frente}</span>
-                                {report.metadata?.weather && (
-                                  <> · <span className="text-primary/30">{report.metadata.weather}</span></>
-                                )}
+                                {report.metadata?.weather && <> · <span className="text-primary/30">{report.metadata.weather}</span></>}
                               </p>
                             </div>
 
-                            {/* Actions (visible on hover) */}
+                            {/* Action buttons — visible on hover */}
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                              <Button
-                                size="sm"
+
+                              {/* Vista Previa / Imprimir */}
+                              <Button size="sm"
+                                onClick={e => { e.stopPropagation(); setPrintingReport(report); }}
+                                variant="outline"
+                                className="h-7 text-[9px] border-orange-500/30 text-orange-400 hover:bg-orange-500 hover:text-white font-mono uppercase px-2"
+                                title="Vista previa e impresión ISO">
+                                <Printer className="w-3 h-3 mr-1" />PDF
+                              </Button>
+
+                              {/* Excel */}
+                              <Button size="sm"
                                 onClick={e => { e.stopPropagation(); exportDossier(report); }}
                                 variant="outline"
-                                className="h-7 text-[9px] border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-black font-mono uppercase px-2"
-                              >
+                                className="h-7 text-[9px] border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-black font-mono uppercase px-2">
                                 <FileSpreadsheet className="w-3 h-3 mr-1" />XLS
                               </Button>
+
+                              {/* Edit */}
                               {(isRoot || isAuthor) && (
-                                <Button
-                                  size="sm"
+                                <Button size="sm"
                                   onClick={e => { e.stopPropagation(); loadEdit(report); }}
                                   variant="outline"
-                                  className="h-7 text-[9px] border-amber-500/30 text-amber-400 hover:bg-amber-500 hover:text-black font-mono uppercase px-2"
-                                >
+                                  className="h-7 text-[9px] border-amber-500/30 text-amber-400 hover:bg-amber-500 hover:text-black font-mono uppercase px-2">
                                   <Edit2 className="w-3 h-3" />
                                 </Button>
                               )}
+
+                              {/* Delete */}
                               {isRoot && (
-                                <Button
-                                  size="icon"
+                                <Button size="icon"
                                   onClick={e => { e.stopPropagation(); purge(report.id, report.metadata?.consecutiveId); }}
                                   variant="outline"
-                                  className="h-7 w-7 border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white"
-                                >
+                                  className="h-7 w-7 border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white">
                                   <Trash2 className="w-3 h-3" />
                                 </Button>
                               )}
@@ -1333,9 +1522,28 @@ export default function DailyReportsPage() {
                             </div>
                           </div>
 
-                          {/* Preview (collapsed only) */}
+                          {/* Collapsed preview */}
                           {!open && (
                             <>
+                              {/* Contractor chips */}
+                              {hasNewFormat && (
+                                <div className="flex gap-1.5 mt-2 flex-wrap">
+                                  {CONTRACTORS_CONFIG.map(cfg => {
+                                    const d = report.contractor_sections![cfg.id as ContractorId];
+                                    if (!d) return null;
+                                    const total = Object.values(d.personnel).reduce((s, v) => s + v, 0);
+                                    const hasAct = d.activities?.trim();
+                                    if (!total && !hasAct) return null;
+                                    return (
+                                      <span key={cfg.id}
+                                        className="text-[8px] font-mono px-2 py-0.5 rounded-full border"
+                                        style={{ borderColor: `${cfg.color}40`, color: cfg.color, backgroundColor: `${cfg.color}10` }}>
+                                        {cfg.icon} {cfg.label} {total > 0 ? `· ${total}p` : ''}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
                               {report.activities && (
                                 <p className="text-[10px] text-white/50 mt-2 line-clamp-2 leading-relaxed font-mono bg-black/30 p-2 rounded">
                                   {report.activities}
@@ -1357,25 +1565,62 @@ export default function DailyReportsPage() {
                         {/* Expanded detail */}
                         {open && (
                           <div className="px-4 pb-4 border-t border-primary/5 space-y-3 pt-3">
-                            {/* Activities */}
-                            <div>
-                              <p className="text-[9px] font-mono text-primary/30 uppercase mb-1">Narrativa de Actividades</p>
-                              <p className="text-[11px] text-white/70 leading-relaxed bg-black/30 p-3 rounded font-mono">
-                                {report.activities || 'Sin descripción.'}
-                              </p>
-                            </div>
 
-                            {/* Full HSE matrix */}
+                            {/* If new format: show per-contractor summary */}
+                            {hasNewFormat ? (
+                              <div className="space-y-3">
+                                {CONTRACTORS_CONFIG.map(cfg => {
+                                  const d = report.contractor_sections![cfg.id as ContractorId];
+                                  if (!d) return null;
+                                  const total = Object.values(d.personnel).reduce((s, v) => s + v, 0);
+                                  const hasContent = d.activities?.trim() || total > 0;
+                                  if (!hasContent) return null;
+                                  return (
+                                    <div key={cfg.id} className="rounded-lg border p-3 space-y-2"
+                                      style={{ borderColor: `${cfg.color}30`, backgroundColor: `${cfg.color}06` }}>
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-mono font-bold uppercase" style={{ color: cfg.color }}>
+                                          {cfg.icon} {cfg.label} — {cfg.sistema}
+                                        </span>
+                                        {total > 0 && <span className="text-[9px] font-mono" style={{ color: cfg.color }}>{total} pers.</span>}
+                                      </div>
+                                      {d.activities?.trim() && (
+                                        <p className="text-[10px] text-white/60 leading-relaxed font-mono bg-black/20 p-2 rounded">
+                                          {d.activities}
+                                        </p>
+                                      )}
+                                      {(d.checklist.workAtHeights || d.checklist.hotWork || d.checklist.confinedSpace || d.checklist.scaffolding) && (
+                                        <div className="flex gap-1 flex-wrap">
+                                          {(Object.entries(HSE_CONFIG) as [HSEKey, typeof HSE_CONFIG.workAtHeights][]).map(([k, hcfg]) =>
+                                            d.checklist[k] && (
+                                              <span key={k} className={`text-[7px] font-mono px-1.5 py-0.5 rounded border ${hcfg.bg}`}>
+                                                {hcfg.icon} {hcfg.label}
+                                              </span>
+                                            )
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              // Legacy format
+                              <div>
+                                <p className="text-[9px] font-mono text-primary/30 uppercase mb-1">Narrativa de Actividades — HL-GISAICO</p>
+                                <p className="text-[11px] text-white/70 leading-relaxed bg-black/30 p-3 rounded font-mono">
+                                  {report.activities || 'Sin descripción.'}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* HSE matrix */}
                             <div>
-                              <p className="text-[9px] font-mono text-primary/30 uppercase mb-2">Matriz HSE — 4 Permisos</p>
+                              <p className="text-[9px] font-mono text-primary/30 uppercase mb-2">Matriz HSE — HL-GISAICO</p>
                               <div className="grid grid-cols-2 gap-1.5">
                                 {(Object.entries(HSE_CONFIG) as [HSEKey, typeof HSE_CONFIG.workAtHeights][]).map(([k, cfg]) => (
-                                  <div
-                                    key={k}
-                                    className={`flex items-center gap-2 p-2 rounded border text-[9px] font-mono ${
-                                      report.seguridad_hse?.[k] ? cfg.bg : 'bg-primary/5 border-primary/10 text-primary/30'
-                                    }`}
-                                  >
+                                  <div key={k}
+                                    className={`flex items-center gap-2 p-2 rounded border text-[9px] font-mono ${report.seguridad_hse?.[k] ? cfg.bg : 'bg-primary/5 border-primary/10 text-primary/30'}`}>
                                     <span>{cfg.icon}</span>
                                     <span className="uppercase flex-1">{cfg.label}</span>
                                     <span className="font-bold ml-auto">{report.seguridad_hse?.[k] ? 'SÍ' : 'N/A'}</span>
@@ -1384,42 +1629,18 @@ export default function DailyReportsPage() {
                               </div>
                             </div>
 
-                            {/* Resources */}
-                            {report.recursos_frente?.filter(r => r.count > 0).length > 0 && (
-                              <div>
-                                <p className="text-[9px] font-mono text-primary/30 uppercase mb-2">
-                                  Recursos Desplegados — {report.recursos_frente.reduce((s, r) => s + r.count, 0)} personas
-                                </p>
-                                <div className="grid grid-cols-3 gap-1.5">
-                                  {report.recursos_frente.filter(r => r.count > 0).map((r, i) => (
-                                    <div key={i} className="bg-primary/5 border border-primary/10 rounded p-2 text-center">
-                                      <p className="text-base font-bold text-cyan-400 font-mono leading-none">{r.count}</p>
-                                      <p className="text-[8px] font-mono text-primary/40 mt-1 leading-tight">{r.type}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
                             {/* Evidence thumbnails */}
                             {report.evidence?.length > 0 && (
                               <div>
-                                <p className="text-[9px] font-mono text-primary/30 uppercase mb-2">
-                                  Evidencias ({report.evidence.length})
-                                </p>
+                                <p className="text-[9px] font-mono text-primary/30 uppercase mb-2">Evidencias ({report.evidence.length})</p>
                                 <div className="grid grid-cols-5 gap-1.5">
                                   {report.evidence.map((ev, i) => (
                                     <div key={i} className="relative aspect-square rounded border border-primary/20 overflow-hidden bg-black group">
                                       {ev.type === 'photo' ? (
                                         /* eslint-disable-next-line @next/next/no-img-element */
-                                        <img
-                                          src={ev.urlOrBase64}
-                                          alt={ev.name}
-                                          loading="lazy"
-                                          decoding="async"
+                                        <img src={ev.urlOrBase64} alt={ev.name} loading="lazy" decoding="async"
                                           className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                          onClick={() => window.open(ev.urlOrBase64, '_blank')}
-                                        />
+                                          onClick={() => window.open(ev.urlOrBase64, '_blank')} />
                                       ) : (
                                         <div className="w-full h-full flex items-center justify-center bg-primary/10">
                                           <FileText className="w-4 h-4 text-cyan-500" />
@@ -1434,18 +1655,16 @@ export default function DailyReportsPage() {
                               </div>
                             )}
 
-                            {/* Footer meta */}
+                            {/* Footer */}
                             <div className="flex justify-between items-center pt-1 border-t border-primary/5">
-                              <p className="text-[9px] font-mono text-primary/25">
-                                Por: {report.metadata?.authorName}
-                              </p>
+                              <p className="text-[9px] font-mono text-primary/25">Por: {report.metadata?.authorName}</p>
                               <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  onClick={() => exportDossier(report)}
-                                  variant="outline"
-                                  className="h-7 text-[9px] border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-black font-mono uppercase px-2.5"
-                                >
+                                <Button size="sm" onClick={() => setPrintingReport(report)} variant="outline"
+                                  className="h-7 text-[9px] border-orange-500/30 text-orange-400 hover:bg-orange-500 hover:text-white font-mono uppercase px-2.5">
+                                  <Printer className="w-3 h-3 mr-1.5" />Vista Previa ISO
+                                </Button>
+                                <Button size="sm" onClick={() => exportDossier(report)} variant="outline"
+                                  className="h-7 text-[9px] border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-black font-mono uppercase px-2.5">
                                   <FileSpreadsheet className="w-3 h-3 mr-1.5" />Exportar Dossier
                                 </Button>
                               </div>
@@ -1461,6 +1680,14 @@ export default function DailyReportsPage() {
           </div>
         </main>
       </div>
+
+      {/* ── Print Preview Modal ── */}
+      {printingReport && (
+        <ReportPrintPreview
+          data={buildPrintData(printingReport)}
+          onClose={() => setPrintingReport(null)}
+        />
+      )}
     </div>
   );
 }
