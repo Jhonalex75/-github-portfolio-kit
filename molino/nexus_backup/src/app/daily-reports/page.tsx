@@ -137,14 +137,21 @@ interface SafetyInfo {
   lessonsLearned:   string;
 }
 
+interface WeldingEntry {
+  estructura:  string;
+  metrajeMl:   number;
+  soldadores:  number;
+}
+
 /** Data stored per-contractor */
 interface PerContractorData {
-  activities:  string;
-  personnel:   ContractorPersonnel;
-  checklist:   ChecklistHSE;
-  safetyInfo:  SafetyInfo;
-  equipment:   ContractorEquipment;
-  lostHours:   ContractorLostHours;
+  activities:     string;
+  personnel:      ContractorPersonnel;
+  checklist:      ChecklistHSE;
+  safetyInfo:     SafetyInfo;
+  equipment:      ContractorEquipment;
+  lostHours:      ContractorLostHours;
+  weldingMetrics: WeldingEntry[];
 }
 
 type ContractorSections = Record<ContractorId, PerContractorData>;
@@ -154,12 +161,13 @@ const EMPTY_SAFETY: SafetyInfo = { comments: '', incidents: 0, nearMisses: 0, ep
 const EMPTY_CHECKLIST: ChecklistHSE = { workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false };
 
 const DEFAULT_CONTRACTOR_DATA = (): PerContractorData => ({
-  activities:  '',
-  personnel:   { mecanicos: 0, soldadores: 0, auxiliares: 0, armadores: 0, inspectoresHSE: 0 },
-  checklist:   { ...EMPTY_CHECKLIST },
-  safetyInfo:  { ...EMPTY_SAFETY },
-  equipment:   { grua: 0, generador: 0, andamios: 0, camionGrua: 0, torreGrua: 0, equipoEspecial: '' },
-  lostHours:   { malClima: 0, parosHSE: 0, fallasTecnicas: 0 },
+  activities:     '',
+  personnel:      { mecanicos: 0, soldadores: 0, auxiliares: 0, armadores: 0, inspectoresHSE: 0 },
+  checklist:      { ...EMPTY_CHECKLIST },
+  safetyInfo:     { ...EMPTY_SAFETY },
+  equipment:      { grua: 0, generador: 0, andamios: 0, camionGrua: 0, torreGrua: 0, equipoEspecial: '' },
+  lostHours:      { malClima: 0, parosHSE: 0, fallasTecnicas: 0 },
+  weldingMetrics: [],
 });
 
 const DEFAULT_SECTIONS = (): ContractorSections => ({
@@ -220,12 +228,13 @@ function resolveContractorData(r: ReportDoc, cid: ContractorId): PerContractorDa
     // Ensure all fields are present (Firestore may return partial objects)
     const def = DEFAULT_CONTRACTOR_DATA();
     return {
-      activities:  fromNew.activities  ?? '',
-      personnel:   { ...def.personnel,  ...(fromNew.personnel  ?? {}) },
-      checklist:   { ...def.checklist,  ...(fromNew.checklist  ?? {}) },
-      safetyInfo:  { ...def.safetyInfo, ...(fromNew.safetyInfo ?? {}) },
-      equipment:   { ...def.equipment,  ...(fromNew.equipment  ?? {}) },
-      lostHours:   { ...def.lostHours,  ...(fromNew.lostHours  ?? {}) },
+      activities:     fromNew.activities     ?? '',
+      personnel:      { ...def.personnel,  ...(fromNew.personnel  ?? {}) },
+      checklist:      { ...def.checklist,  ...(fromNew.checklist  ?? {}) },
+      safetyInfo:     { ...def.safetyInfo, ...(fromNew.safetyInfo ?? {}) },
+      equipment:      { ...def.equipment,  ...(fromNew.equipment  ?? {}) },
+      lostHours:      { ...def.lostHours,  ...(fromNew.lostHours  ?? {}) },
+      weldingMetrics: (fromNew as PerContractorData).weldingMetrics ?? [],
     };
   }
 
@@ -327,6 +336,7 @@ function buildPrintData(r: ReportDoc): PrintReportData {
         observacionesEpp:    data.safetyInfo.eppObservations,
         leccionesAprendidas: data.safetyInfo.lessonsLearned,
       },
+      weldingMetrics: data.weldingMetrics ?? [],
     };
   };
 
@@ -644,11 +654,16 @@ export default function DailyReportsPage() {
     setWeather(r.metadata.weather);
 
     if (r.contractor_sections) {
-      // New format — load directly
+      // New format — load directly (with weldingMetrics migration)
+      const hydrate = (cid: string): PerContractorData => {
+        const raw = r.contractor_sections![cid as ContractorId];
+        if (!raw) return DEFAULT_CONTRACTOR_DATA();
+        return { ...DEFAULT_CONTRACTOR_DATA(), ...raw, weldingMetrics: (raw as PerContractorData).weldingMetrics ?? [] };
+      };
       setContractorSections({
-        'HL-GISAICO':   r.contractor_sections['HL-GISAICO']   ?? DEFAULT_CONTRACTOR_DATA(),
-        'TECNITANQUES': r.contractor_sections['TECNITANQUES'] ?? DEFAULT_CONTRACTOR_DATA(),
-        'CYC':          r.contractor_sections['CYC']          ?? DEFAULT_CONTRACTOR_DATA(),
+        'HL-GISAICO':   hydrate('HL-GISAICO'),
+        'TECNITANQUES': hydrate('TECNITANQUES'),
+        'CYC':          hydrate('CYC'),
       });
     } else {
       // Legacy format — migrate HL-GISAICO data
@@ -905,6 +920,155 @@ export default function DailyReportsPage() {
                         💡 Tip: escriba una actividad por línea — el PDF las numerará automáticamente
                       </p>
                     </div>
+
+                    {/* ── METRAJES DE SOLDADURA — solo TECNITANQUES y CYC ── */}
+                    {(activeContractorId === 'TECNITANQUES' || activeContractorId === 'CYC') && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-[10px] font-mono uppercase tracking-widest flex items-center gap-1.5"
+                            style={{ color: activeCfg.color }}>
+                            🔥 Metrajes de Soldadura — {activeContractorId}
+                          </Label>
+                          <button
+                            onClick={() => updateSection('weldingMetrics', [
+                              ...activeData.weldingMetrics,
+                              { estructura: '', metrajeMl: 0, soldadores: 0 },
+                            ])}
+                            className="flex items-center gap-1 text-[9px] font-mono px-2 py-1 rounded border transition-all hover:opacity-80"
+                            style={{ borderColor: `${activeCfg.color}50`, color: activeCfg.color, backgroundColor: `${activeCfg.color}12` }}
+                          >
+                            <Plus className="w-3 h-3" /> Agregar fila
+                          </button>
+                        </div>
+
+                        {activeData.weldingMetrics.length > 0 ? (
+                          <>
+                            <div className="rounded-lg border overflow-hidden" style={{ borderColor: `${activeCfg.color}30` }}>
+                              {/* Table header */}
+                              <div
+                                className="grid text-[8px] font-mono font-bold uppercase tracking-wider"
+                                style={{
+                                  gridTemplateColumns: '1fr 84px 76px 30px',
+                                  backgroundColor: `${activeCfg.color}22`,
+                                  color: activeCfg.color,
+                                }}
+                              >
+                                <div className="px-2.5 py-1.5">Estructura / Tanque</div>
+                                <div className="px-2 py-1.5 text-center">Metraje (ml)</div>
+                                <div className="px-2 py-1.5 text-center">Soldadores</div>
+                                <div />
+                              </div>
+
+                              {/* Rows */}
+                              {activeData.weldingMetrics.map((row, idx) => (
+                                <div
+                                  key={idx}
+                                  className="grid border-t"
+                                  style={{
+                                    gridTemplateColumns: '1fr 84px 76px 30px',
+                                    borderColor: `${activeCfg.color}15`,
+                                    backgroundColor: idx % 2 === 0 ? 'transparent' : `${activeCfg.color}06`,
+                                  }}
+                                >
+                                  <input
+                                    value={row.estructura}
+                                    onChange={e => {
+                                      const n = [...activeData.weldingMetrics];
+                                      n[idx] = { ...n[idx], estructura: e.target.value };
+                                      updateSection('weldingMetrics', n);
+                                    }}
+                                    placeholder="TK-002, Cañería..."
+                                    className="px-2.5 py-1.5 bg-transparent text-[10px] font-mono text-primary/80 placeholder-primary/20 outline-none border-r"
+                                    style={{ borderColor: `${activeCfg.color}15` }}
+                                  />
+                                  <input
+                                    type="number" min="0" step="0.5"
+                                    value={row.metrajeMl === 0 ? '' : row.metrajeMl}
+                                    onChange={e => {
+                                      const n = [...activeData.weldingMetrics];
+                                      n[idx] = { ...n[idx], metrajeMl: parseFloat(e.target.value) || 0 };
+                                      updateSection('weldingMetrics', n);
+                                    }}
+                                    placeholder="0"
+                                    className="px-2 py-1.5 bg-transparent text-[11px] font-mono font-bold text-center outline-none border-r"
+                                    style={{ color: activeCfg.color, borderColor: `${activeCfg.color}15` }}
+                                  />
+                                  <input
+                                    type="number" min="0"
+                                    value={row.soldadores === 0 ? '' : row.soldadores}
+                                    onChange={e => {
+                                      const n = [...activeData.weldingMetrics];
+                                      n[idx] = { ...n[idx], soldadores: parseInt(e.target.value) || 0 };
+                                      updateSection('weldingMetrics', n);
+                                    }}
+                                    placeholder="0"
+                                    className="px-2 py-1.5 bg-transparent text-[11px] font-mono font-bold text-center outline-none border-r"
+                                    style={{ color: activeCfg.color, borderColor: `${activeCfg.color}15` }}
+                                  />
+                                  <button
+                                    onClick={() => updateSection('weldingMetrics', activeData.weldingMetrics.filter((_, j) => j !== idx))}
+                                    className="flex items-center justify-center text-red-500/25 hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+
+                              {/* Totals row */}
+                              {(() => {
+                                const totalMl   = activeData.weldingMetrics.reduce((s, r) => s + r.metrajeMl, 0);
+                                const totalSold = activeData.weldingMetrics.reduce((s, r) => s + r.soldadores, 0);
+                                const decl      = activeData.personnel.soldadores;
+                                const match     = totalSold === decl;
+                                return (
+                                  <div
+                                    className="grid border-t px-0 py-0 text-[9px] font-mono font-bold"
+                                    style={{
+                                      gridTemplateColumns: '1fr 84px 76px 30px',
+                                      borderColor: `${activeCfg.color}30`,
+                                      backgroundColor: `${activeCfg.color}14`,
+                                    }}
+                                  >
+                                    <div className="px-2.5 py-1.5 text-primary/50 uppercase tracking-wide text-[8px]">TOTALES</div>
+                                    <div className="px-2 py-1.5 text-center" style={{ color: activeCfg.color }}>
+                                      {totalMl % 1 === 0 ? totalMl : totalMl.toFixed(1)} ml
+                                    </div>
+                                    <div className={`px-2 py-1.5 text-center ${match ? 'text-green-400' : 'text-amber-400'}`}>
+                                      {totalSold} / {decl}
+                                    </div>
+                                    <div />
+                                  </div>
+                                );
+                              })()}
+                            </div>
+
+                            {/* Validation warning */}
+                            {(() => {
+                              const totalSold = activeData.weldingMetrics.reduce((s, r) => s + r.soldadores, 0);
+                              const decl      = activeData.personnel.soldadores;
+                              if (totalSold === decl) return null;
+                              return (
+                                <div className="flex items-start gap-2 px-2.5 py-2 rounded border border-amber-500/30 bg-amber-500/5">
+                                  <AlertTriangle className="w-3 h-3 text-amber-400 flex-shrink-0 mt-0.5" />
+                                  <p className="text-[9px] font-mono text-amber-300">
+                                    {totalSold > decl
+                                      ? `Soldadores asignados (${totalSold}) superan los declarados en Personal (${decl}). Revise.`
+                                      : `${decl - totalSold} soldador(es) sin asignar. Total declarado: ${decl} — Asignados: ${totalSold}.`}
+                                  </p>
+                                </div>
+                              );
+                            })()}
+                          </>
+                        ) : (
+                          <div className="border border-dashed rounded-lg p-3 text-center"
+                            style={{ borderColor: `${activeCfg.color}20` }}>
+                            <p className="text-[9px] font-mono text-primary/30">
+                              Sin registros de soldadura — Pulse &ldquo;Agregar fila&rdquo; para iniciar
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <button onClick={() => setTab('hse')}
                       className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">

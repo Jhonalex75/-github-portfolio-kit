@@ -54,12 +54,13 @@ export interface DailyReportData {
   admin_activities?: Array<{ name: string; progress: number }>;
   // ── Per-contractor sections (new format) ──
   contractor_sections?: Record<string, {
-    activities:  string;
-    personnel:   { mecanicos: number; soldadores: number; auxiliares: number; armadores: number; inspectoresHSE: number };
-    checklist:   { workAtHeights: boolean; hotWork: boolean; confinedSpace: boolean; scaffolding: boolean };
-    safetyInfo:  { comments: string; incidents: number; nearMisses: number; eppObservations: string; lessonsLearned: string };
-    equipment:   { grua: number; generador: number; andamios: number; camionGrua: number; torreGrua: number; equipoEspecial: string };
-    lostHours:   { malClima: number; parosHSE: number; fallasTecnicas: number };
+    activities:     string;
+    personnel:      { mecanicos: number; soldadores: number; auxiliares: number; armadores: number; inspectoresHSE: number };
+    checklist:      { workAtHeights: boolean; hotWork: boolean; confinedSpace: boolean; scaffolding: boolean };
+    safetyInfo:     { comments: string; incidents: number; nearMisses: number; eppObservations: string; lessonsLearned: string };
+    equipment:      { grua: number; generador: number; andamios: number; camionGrua: number; torreGrua: number; equipoEspecial: string };
+    lostHours:      { malClima: number; parosHSE: number; fallasTecnicas: number };
+    weldingMetrics?: Array<{ estructura: string; metrajeMl: number; soldadores: number }>;
   }>;
 }
 
@@ -807,120 +808,477 @@ function buildSheetSeguridad(wb: ExcelJS.Workbook, report: DailyReportData) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// SHEET 5 — NARRATIVAS POR CONTRATISTA (new multi-contractor format)
+// SHEET 5 — REPORTE COMPLETO POR CONTRATISTA (layout tipo PDF)
 // ═════════════════════════════════════════════════════════════════════════════
 function buildSheetNarrativasContratistas(wb: ExcelJS.Workbook, report: DailyReportData) {
   const sections = report.contractor_sections;
   if (!sections) return;
 
+  const COLS = 6;
   const CONTRACTORS = [
-    { id: 'HL-GISAICO',   label: '🏗️ HL-GISAICO',   sistema: 'CONTRATISTA PRINCIPAL — MECÁNICA Y CIVIL', headerBg: 'FF0D47A1', rowBg: 'FFE3F2FD', fg: 'FF0D47A1' },
-    { id: 'TECNITANQUES', label: '🛢️ TECNITANQUES', sistema: 'SISTEMA LIXIVIACIÓN',                       headerBg: 'FF1B5E20', rowBg: 'FFE8F5E9', fg: 'FF1B5E20' },
-    { id: 'CYC',          label: '⚗️ CYC',           sistema: 'SISTEMA CIP',                               headerBg: 'FF4A148C', rowBg: 'FFF3E5F5', fg: 'FF4A148C' },
+    { id: 'HL-GISAICO',   label: '\u{1F3D7}\uFE0F  HL-GISAICO',   sistema: 'CONTRATISTA PRINCIPAL \u2014 MEC\u00C1NICA Y CIVIL', headerBg: 'FF0D47A1', rowBg: 'FFE3F2FD', fg: 'FF0D47A1', weld: false },
+    { id: 'TECNITANQUES', label: '\u{1F6E2}\uFE0F  TECNITANQUES', sistema: 'SISTEMA LIXIVIACI\u00D3N',                            headerBg: 'FF1B5E20', rowBg: 'FFE8F5E9', fg: 'FF1B5E20', weld: true  },
+    { id: 'CYC',          label: '\u2697\uFE0F  CYC',             sistema: 'SISTEMA CIP',                                         headerBg: 'FF4A148C', rowBg: 'FFF3E5F5', fg: 'FF4A148C', weld: true  },
   ];
 
-  const ws = wb.addWorksheet('5. NARRATIVAS', {
-    pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToHeight: 0, fitToWidth: 1 },
+  const ws = wb.addWorksheet('5. DETALLE CONTRATISTAS', {
+    pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToHeight: 0, fitToWidth: 1 },
   });
-  ws.columns = [{ key: 'n', width: 6 }, { key: 'actividad', width: 90 }];
+  ws.columns = [
+    { key: 'a', width: 6  },
+    { key: 'b', width: 30 },
+    { key: 'c', width: 14 },
+    { key: 'd', width: 2  },
+    { key: 'e', width: 30 },
+    { key: 'f', width: 14 },
+  ];
 
-  addDocumentHeader(ws, 'NARRATIVA DE ACTIVIDADES POR CONTRATISTA', report, 2);
+  addDocumentHeader(ws, 'REPORTE DETALLADO POR CONTRATISTA \u2014 ISO 9001:2015', report, COLS);
+
+  // ── helpers ──
+  const contractorBanner = (label: string, sistema: string, total: number, bg: string) => {
+    ws.addRow([]);
+    const rn = ws.rowCount;
+    ws.mergeCells(`A${rn}:F${rn}`);
+    const cell = ws.getCell(`A${rn}`);
+    cell.value = `${label}   |   ${sistema}   |   \uD83D\uDC77 ${total} personas`;
+    cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+    cell.font  = { bold: true, name: 'Calibri', size: 12, color: { argb: C.white } };
+    cell.alignment = { horizontal: 'left', vertical: 'middle' };
+    cell.border = { left: { style: 'thick', color: { argb: 'FFFF6B00' } } };
+    ws.getRow(rn).height = 28;
+  };
+
+  const subHdr = (title: string, fromCol: string, toCol: string, bg: string) => {
+    ws.addRow([]);
+    const rn = ws.rowCount;
+    ws.mergeCells(`${fromCol}${rn}:${toCol}${rn}`);
+    const cell = ws.getCell(`${fromCol}${rn}`);
+    cell.value = `\u25C6  ${title}`;
+    cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+    cell.font  = { bold: true, name: 'Calibri', size: 9, color: { argb: C.white } };
+    cell.alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(rn).height = 20;
+  };
+
+  const styleCell5 = (col: string, rn: number, val: string | number | undefined, bold: boolean, bg: string, fg = C.black, center = false) => {
+    const cell = ws.getCell(`${col}${rn}`);
+    cell.value = val ?? '';
+    cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+    cell.font  = { bold, name: 'Calibri', size: 9, color: { argb: fg } };
+    cell.border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
+    cell.alignment = { horizontal: center ? 'center' : 'left', vertical: 'middle', wrapText: true };
+  };
 
   for (const cfg of CONTRACTORS) {
     const data = sections[cfg.id];
     if (!data) continue;
-
-    // Section header for this contractor
-    ws.addRow([]);
-    const sepRn = ws.rowCount;
-    ws.mergeCells(`A${sepRn}:B${sepRn}`);
-    const sepCell = ws.getCell(`A${sepRn}`);
-    sepCell.value = `${cfg.label}   |   ${cfg.sistema}`;
-    sepCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.headerBg } };
-    sepCell.font  = { bold: true, name: 'Calibri', size: 11, color: { argb: C.white } };
-    sepCell.alignment = { horizontal: 'left', vertical: 'middle' };
-    sepCell.border = { left: { style: 'thick', color: { argb: 'FFFF6B00' } } };
-    ws.getRow(sepRn).height = 26;
-
-    // Personnel summary
-    const p = data.personnel;
+    const p  = data.personnel;
+    const eq = data.equipment;
+    const si = data.safetyInfo;
+    const ck = data.checklist;
+    const lh = data.lostHours;
     const totalP = p.mecanicos + p.soldadores + p.auxiliares + p.armadores + p.inspectoresHSE;
-    if (totalP > 0) {
-      ws.addRow(['', `👷 Personal: Mecánicos(${p.mecanicos}) · Soldadores(${p.soldadores}) · Auxiliares(${p.auxiliares}) · Armadores(${p.armadores}) · Insp.HSE(${p.inspectoresHSE}) — TOTAL: ${totalP} pers.`]);
-      const pRn = ws.rowCount;
-      ws.getCell(`A${pRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.rowBg } };
-      ws.getCell(`B${pRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.rowBg } };
-      ws.getCell(`B${pRn}`).font = { italic: true, name: 'Calibri', size: 9, color: { argb: cfg.fg } };
-      ws.getCell(`B${pRn}`).alignment = { vertical: 'middle', wrapText: true };
-      ws.getRow(pRn).height = 18;
-    }
 
-    // Activities header
-    ws.addRow(['N°', 'ACTIVIDAD EJECUTADA']);
-    const aHRn = ws.rowCount;
-    ws.getCell(`A${aHRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.fg } };
-    ws.getCell(`A${aHRn}`).font = { bold: true, name: 'Calibri', size: 9, color: { argb: C.white } };
-    ws.getCell(`A${aHRn}`).alignment = { horizontal: 'center', vertical: 'middle' };
-    ws.getCell(`B${aHRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.fg } };
-    ws.getCell(`B${aHRn}`).font = { bold: true, name: 'Calibri', size: 9, color: { argb: C.white } };
-    ws.getCell(`B${aHRn}`).alignment = { vertical: 'middle' };
-    ws.getRow(aHRn).height = 18;
+    contractorBanner(cfg.label, cfg.sistema, totalP, cfg.headerBg);
 
-    // Activities rows
+    // ── ACTIVIDADES ──
+    subHdr('NARRATIVA DE ACTIVIDADES EJECUTADAS', 'A', 'F', C.gray);
     const lines = (data.activities || '').split('\n').map(s => s.trim()).filter(Boolean);
     if (lines.length > 0) {
       lines.forEach((line, i) => {
-        ws.addRow([i + 1, line]);
-        const rn  = ws.rowCount;
-        const bg  = i % 2 === 0 ? C.white : cfg.rowBg;
-        ws.getCell(`A${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-        ws.getCell(`A${rn}`).font = { bold: true, name: 'Calibri', size: 10, color: { argb: cfg.fg } };
-        ws.getCell(`A${rn}`).alignment = { horizontal: 'center', vertical: 'top' };
-        ws.getCell(`B${rn}`).value = line;
-        ws.getCell(`B${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-        ws.getCell(`B${rn}`).font = { name: 'Calibri', size: 10, color: { argb: C.black } };
+        ws.addRow([i + 1, line, '', '', '', '']);
+        const rn = ws.rowCount;
+        ws.mergeCells(`B${rn}:F${rn}`);
+        const bg = i % 2 === 0 ? C.white : cfg.rowBg;
+        styleCell5('A', rn, i + 1, true,  bg, cfg.fg, true);
+        styleCell5('B', rn, line,  false, bg, C.black);
         ws.getCell(`B${rn}`).alignment = { vertical: 'top', wrapText: true };
         ws.getRow(rn).height = 20;
-        [ws.getCell(`A${rn}`), ws.getCell(`B${rn}`)].forEach(cell => {
-          cell.border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
-        });
       });
     } else {
-      ws.addRow(['—', 'Sin actividades registradas para este contratista.']);
+      ws.addRow(['', 'Sin actividades registradas.', '', '', '', '']);
       const rn = ws.rowCount;
-      ws.getCell(`A${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.rowBg } };
-      ws.getCell(`B${rn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.rowBg } };
-      ws.getCell(`B${rn}`).font = { italic: true, name: 'Calibri', size: 10, color: { argb: C.gray } };
-      ws.getRow(rn).height = 20;
+      ws.mergeCells(`B${rn}:F${rn}`);
+      styleCell5('B', rn, 'Sin actividades registradas.', false, cfg.rowBg, C.gray);
+      ws.getRow(rn).height = 18;
     }
 
-    // HSE summary row
-    const hseActive = Object.entries(data.checklist).filter(([, v]) => v).map(([k]) =>
-      ({ workAtHeights: '🪜 Alturas', hotWork: '🔥 Caliente', confinedSpace: '⚠️ Confinados', scaffolding: '🏗️ Andamios' }[k] ?? k)
-    );
-    if (hseActive.length > 0) {
-      ws.addRow(['', `🚨 Permisos Activos: ${hseActive.join(' · ')}`]);
-      const hRn = ws.rowCount;
-      ws.getCell(`A${hRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9C4' } };
-      ws.getCell(`B${hRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9C4' } };
-      ws.getCell(`B${hRn}`).font = { bold: true, name: 'Calibri', size: 9, color: { argb: 'FF8B4000' } };
-      ws.getRow(hRn).height = 18;
+    // ── PERSONAL + EQUIPOS (side-by-side) ──
+    ws.addRow([]);
+    const phRn = ws.rowCount;
+    ws.mergeCells(`A${phRn}:C${phRn}`);
+    ws.mergeCells(`E${phRn}:F${phRn}`);
+    const mkPH = (col: string, title: string) => {
+      const cell = ws.getCell(`${col}${phRn}`);
+      cell.value = `\u25C6  ${title}`;
+      cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF455A64' } };
+      cell.font  = { bold: true, name: 'Calibri', size: 9, color: { argb: C.white } };
+      cell.alignment = { vertical: 'middle', horizontal: 'left' };
+    };
+    mkPH('A', 'RECURSO HUMANO');
+    ws.getCell(`D${phRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+    mkPH('E', 'EQUIPOS Y MAQUINARIA');
+    ws.getRow(phRn).height = 20;
+
+    // sub-header row
+    ws.addRow([]);
+    const shRn = ws.rowCount;
+    [['A','N\u00B0'],['B','ESPECIALIDAD'],['C','CANT.'],['D',''],['E','EQUIPO'],['F','CANT.']].forEach(([col, val]) => {
+      const cell = ws.getCell(`${col}${shRn}`);
+      cell.value = val;
+      cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: col === 'D' ? 'FFF0F0F0' : 'FF546E7A' } };
+      cell.font  = { bold: true, name: 'Calibri', size: 8, color: { argb: C.white } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { top: thin(C.gray), bottom: thin(C.gray), left: thin(C.gray), right: thin(C.gray) };
+    });
+    ws.getRow(shRn).height = 16;
+
+    const personRows: [string, number][] = [
+      ['Mec\u00E1nicos Armadores', p.mecanicos],
+      ['Soldadores Calificados', p.soldadores],
+      ['Auxiliares / Ayudantes', p.auxiliares],
+      ['Armadores Estructurales', p.armadores],
+      ['Inspectores HSE', p.inspectoresHSE],
+    ];
+    const equipRows: [string, string | number][] = [
+      ['Gr\u00FAa', eq.grua],
+      ['Generador', eq.generador],
+      ['Andamios (m\u00B3)', eq.andamios],
+      ['Cami\u00F3n Gr\u00FAa', eq.camionGrua],
+      ['Torre Gr\u00FAa', eq.torreGrua],
+    ];
+    for (let i = 0; i < 5; i++) {
+      const pr = personRows[i];
+      const er = equipRows[i];
+      const bg = i % 2 === 0 ? C.white : cfg.rowBg;
+      ws.addRow([]);
+      const rn = ws.rowCount;
+      const sR = (col: string, val: string | number | undefined, bold = false, center = false) => {
+        const cell = ws.getCell(`${col}${rn}`);
+        cell.value = val ?? '';
+        cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: col === 'D' ? 'FFF0F0F0' : bg } };
+        cell.font  = { bold, name: 'Calibri', size: 9, color: { argb: bold ? cfg.fg : C.black } };
+        cell.alignment = { horizontal: center ? 'center' : 'left', vertical: 'middle' };
+        cell.border = { top: thin('FFEEEEEE'), bottom: thin('FFEEEEEE'), left: thin('FFEEEEEE'), right: thin('FFEEEEEE') };
+      };
+      sR('A', i + 1, true, true);
+      sR('B', pr[0]);  sR('C', pr[1], true, true);
+      sR('D', '');
+      sR('E', er[0]);  sR('F', er[1], true, true);
+      ws.getRow(rn).height = 17;
     }
 
-    // Incidents / near misses
-    const si = data.safetyInfo;
-    if (si.incidents > 0 || si.nearMisses > 0) {
-      ws.addRow(['', `🔴 Incidentes: ${si.incidents}  |  🟡 Near Miss: ${si.nearMisses}${si.comments ? `  |  ${si.comments}` : ''}`]);
-      const siRn = ws.rowCount;
-      ws.getCell(`A${siRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } };
-      ws.getCell(`B${siRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } };
-      ws.getCell(`B${siRn}`).font = { bold: true, name: 'Calibri', size: 9, color: { argb: 'FFCC0000' } };
-      ws.getCell(`B${siRn}`).alignment = { wrapText: true, vertical: 'top' };
-      ws.getRow(siRn).height = 22;
+    // totals row
+    ws.addRow([]);
+    const totRn = ws.rowCount;
+    ['A','B','C','D','E','F'].forEach(col => {
+      const cell = ws.getCell(`${col}${totRn}`);
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: col === 'D' ? 'FFF0F0F0' : cfg.headerBg } };
+      cell.font = { bold: true, name: 'Calibri', size: 9, color: { argb: col === 'D' ? C.black : C.white } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { top: thick(C.gray), bottom: thick(C.gray) };
+    });
+    ws.mergeCells(`A${totRn}:B${totRn}`);
+    ws.getCell(`A${totRn}`).value = 'TOTAL PERSONAL';
+    ws.getCell(`A${totRn}`).alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getCell(`C${totRn}`).value = totalP;
+    if (eq.equipoEspecial) {
+      ws.mergeCells(`E${totRn}:F${totRn}`);
+      ws.getCell(`E${totRn}`).value = `Equipo especial: ${eq.equipoEspecial}`;
+      ws.getCell(`E${totRn}`).font = { italic: true, name: 'Calibri', size: 8, color: { argb: C.white } };
+      ws.getCell(`E${totRn}`).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+    }
+    ws.getRow(totRn).height = 20;
+
+    // ── HSE CHECKLIST ──
+    subHdr('CHECKLIST HSE \u2014 PERMISOS DE TRABAJO ACTIVOS', 'A', 'F', 'FFB71C1C');
+    const hseItems: [string, boolean, string][] = [
+      ['\uD83E\uDEDC  Trabajo en Alturas',    !!ck.workAtHeights, '\u2705 AUTORIZADO \u2014 APT FIRMADO Y VALIDADO'],
+      ['\uD83D\uDD25  Trabajo en Caliente',   !!ck.hotWork,       '\u2705 AUTORIZADO \u2014 APT FIRMADO Y VALIDADO'],
+      ['\u26A0\uFE0F   Espacios Confinados',  !!ck.confinedSpace, '\uD83D\uDD34 ACTIVO \u2014 Monitoreo atm. requerido'],
+      ['\uD83C\uDFD7\uFE0F  Andamios Cert.',  !!ck.scaffolding,   '\u2705 AUTORIZADO \u2014 APT FIRMADO Y VALIDADO'],
+    ];
+    for (let i = 0; i < 4; i += 2) {
+      const [l1, a1, s1] = hseItems[i];
+      const [l2, a2, s2] = hseItems[i + 1] ?? ['', false, ''];
+      ws.addRow([]);
+      const rn = ws.rowCount;
+      const bg1 = a1 ? 'FFFFF9C4' : C.white;
+      const bg2 = a2 ? 'FFFFF9C4' : C.white;
+      const sH = (col: string, val: string, bold: boolean, bg: string, fg = C.black) => {
+        const cell = ws.getCell(`${col}${rn}`);
+        cell.value = val;
+        cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        cell.font  = { bold, name: 'Calibri', size: 9, color: { argb: fg } };
+        cell.border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
+        cell.alignment = { vertical: 'middle', wrapText: true };
+      };
+      sH('A', '', false, C.white);
+      sH('B', l1, true, bg1);
+      sH('C', a1 ? s1 : '\u2014 N/A', false, bg1, a1 ? 'FF8B4000' : C.gray);
+      sH('D', '', false, 'FFF0F0F0');
+      sH('E', l2, true, bg2);
+      sH('F', a2 ? s2 : '\u2014 N/A', false, bg2, a2 ? 'FF8B4000' : C.gray);
+      ws.getRow(rn).height = 18;
+    }
+
+    // ── SEGURIDAD ──
+    subHdr('CONDICIONES DE SEGURIDAD Y MEDIO AMBIENTE', 'A', 'F', 'FF4A148C');
+    const addSafetyRow = (l1: string, v1: string | number, l2?: string, v2?: string | number, alertBg = C.white) => {
+      ws.addRow([]);
+      const rn = ws.rowCount;
+      styleCell5('A', rn, '', false, alertBg);
+      styleCell5('B', rn, l1, true,  alertBg === C.white ? C.lightGray : alertBg);
+      styleCell5('C', rn, v1, false, alertBg);
+      styleCell5('D', rn, '', false, 'FFF0F0F0');
+      if (l2 !== undefined) {
+        styleCell5('E', rn, l2, true,  alertBg === C.white ? C.lightGray : alertBg);
+        styleCell5('F', rn, v2 ?? '', false, alertBg);
+      } else {
+        ws.mergeCells(`E${rn}:F${rn}`);
+        styleCell5('E', rn, '', false, alertBg);
+      }
+      ws.getRow(rn).height = 22;
+    };
+    addSafetyRow('Comentarios Generales', si.comments || '\u2014', 'Observaciones EPP', si.eppObservations || '\u2014');
+    addSafetyRow('\uD83D\uDD34 Incidentes', si.incidents, '\uD83D\uDFE1 Near Miss', si.nearMisses, 'FFFFEBEE');
+    if (si.lessonsLearned) {
+      ws.addRow([]);
+      const llRn = ws.rowCount;
+      ws.mergeCells(`A${llRn}:F${llRn}`);
+      const llCell = ws.getCell(`A${llRn}`);
+      llCell.value = `\uD83D\uDCDA  Lecci\u00F3n Aprendida: ${si.lessonsLearned}`;
+      llCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+      llCell.font  = { italic: true, name: 'Calibri', size: 9, color: { argb: 'FF1B5E20' } };
+      llCell.alignment = { wrapText: true, vertical: 'middle' };
+      ws.getRow(llRn).height = 22;
+    }
+
+    // ── HORAS PERDIDAS ──
+    const totalLH = lh.malClima + lh.parosHSE + lh.fallasTecnicas;
+    if (totalLH > 0) {
+      subHdr('HORAS PERDIDAS DEL TURNO', 'A', 'F', 'FFAD1457');
+      addSafetyRow('\uD83C\uDF27\uFE0F Mal Clima (h)', lh.malClima.toFixed(1), '\uD83D\uDEA8 Paros HSE (h)', lh.parosHSE.toFixed(1));
+      addSafetyRow('\uD83D\uDD27 Falla T\u00E9c. (h)', lh.fallasTecnicas.toFixed(1), '\u23F1 TOTAL PERDIDAS', totalLH.toFixed(1), 'FFFCE4EC');
+    }
+
+    // ── METRAJES DE SOLDADURA (solo TECNITANQUES y CYC) ──
+    if (cfg.weld) {
+      const wm = (data as any).weldingMetrics as Array<{ estructura: string; metrajeMl: number; soldadores: number }> | undefined;
+      if (wm && wm.length > 0) {
+        const weldBg    = cfg.id === 'TECNITANQUES' ? 'FF1B5E20' : 'FF4A148C';
+        const weldLight = cfg.id === 'TECNITANQUES' ? 'FFE8F5E9'  : 'FFF3E5F5';
+
+        // Section header
+        ws.addRow([]);
+        const wmTitleRn = ws.rowCount;
+        ws.mergeCells(`A${wmTitleRn}:F${wmTitleRn}`);
+        const wmT = ws.getCell(`A${wmTitleRn}`);
+        wmT.value = '\u25C6  METRAJES DE SOLDADURA \u2014 RENDIMIENTO DIARIO';
+        wmT.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: weldBg } };
+        wmT.font  = { bold: true, name: 'Calibri', size: 10, color: { argb: C.white } };
+        wmT.alignment = { horizontal: 'left', vertical: 'middle' };
+        wmT.border = { left: { style: 'thick', color: { argb: 'FFFF6B00' } } };
+        ws.getRow(wmTitleRn).height = 22;
+
+        // Column headers: A=N° | B-C=Estructura | D=Metraje | E=Soldadores | F=
+        ws.addRow([]);
+        const wmHRn = ws.rowCount;
+        ws.mergeCells(`B${wmHRn}:C${wmHRn}`);
+        [['A','N\u00B0'],['B','ESTRUCTURA / TANQUE'],['D','METRAJE (ml)'],['E','SOLDADORES'],['F','']].forEach(([col, val]) => {
+          const cell = ws.getCell(`${col}${wmHRn}`);
+          cell.value = val;
+          cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: weldBg } };
+          cell.font  = { bold: true, name: 'Calibri', size: 9, color: { argb: C.white } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.border = { top: thin(C.gray), bottom: thin(C.gray), left: thin(C.gray), right: thin(C.gray) };
+        });
+        ws.getRow(wmHRn).height = 18;
+
+        let totalMl = 0, totalSold = 0;
+        wm.forEach((row, i) => {
+          totalMl   += row.metrajeMl;
+          totalSold += row.soldadores;
+          ws.addRow([]);
+          const rn = ws.rowCount;
+          const bg = i % 2 === 0 ? C.white : weldLight;
+          ws.mergeCells(`B${rn}:C${rn}`);
+          const sW = (col: string, val: string | number, bold = false, center = false) => {
+            const cell = ws.getCell(`${col}${rn}`);
+            cell.value = val;
+            cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+            cell.font  = { bold, name: 'Calibri', size: 10, color: { argb: bold ? weldBg : C.black } };
+            cell.alignment = { horizontal: center ? 'center' : 'left', vertical: 'middle' };
+            cell.border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
+          };
+          sW('A', i + 1, true, true);
+          sW('B', row.estructura || '\u2014');
+          sW('D', row.metrajeMl % 1 === 0 ? row.metrajeMl : row.metrajeMl.toFixed(1), true, true);
+          sW('E', row.soldadores, true, true);
+          sW('F', '');
+          ws.getRow(rn).height = 18;
+        });
+
+        // Totals row
+        ws.addRow([]);
+        const wmTotRn = ws.rowCount;
+        ws.mergeCells(`A${wmTotRn}:C${wmTotRn}`);
+        ws.mergeCells(`F${wmTotRn}:F${wmTotRn}`);
+        ['A','B','C','D','E','F'].forEach(col => {
+          const cell = ws.getCell(`${col}${wmTotRn}`);
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: weldBg } };
+          cell.font = { bold: true, name: 'Calibri', size: 11, color: { argb: 'FFFFD700' } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.border = { top: thick(C.gray), bottom: thick(C.gray) };
+        });
+        ws.getCell(`A${wmTotRn}`).value = '\uD83D\uDD25  TOTAL SOLDADURA DEL D\u00CDA';
+        ws.getCell(`A${wmTotRn}`).alignment = { horizontal: 'left', vertical: 'middle' };
+        ws.getCell(`D${wmTotRn}`).value = `${totalMl % 1 === 0 ? totalMl : totalMl.toFixed(1)} ml`;
+        ws.getCell(`E${wmTotRn}`).value = `${totalSold} sold.`;
+        ws.getRow(wmTotRn).height = 24;
+      }
     }
   }
 
-  addFooter(ws, 2);
+  addFooter(ws, COLS);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SHEET 6 — CONSOLIDADO DE METRAJES DE SOLDADURA
+// ═════════════════════════════════════════════════════════════════════════════
+function buildSheetMetrajesSoldadura(wb: ExcelJS.Workbook, report: DailyReportData) {
+  const sections = report.contractor_sections;
+  if (!sections) return;
+
+  const weldContractors = [
+    { id: 'TECNITANQUES', label: '\uD83D\uDEE2\uFE0F  TECNITANQUES', sistema: 'SISTEMA LIXIVIACI\u00D3N', headerBg: 'FF1B5E20', rowBg: 'FFE8F5E9', fg: 'FF1B5E20' },
+    { id: 'CYC',          label: '\u2697\uFE0F  CYC',               sistema: 'SISTEMA CIP',              headerBg: 'FF4A148C', rowBg: 'FFF3E5F5', fg: 'FF4A148C' },
+  ];
+
+  const hasAnyWeld = weldContractors.some(cfg => {
+    const wm = (sections[cfg.id] as any)?.weldingMetrics;
+    return wm && wm.length > 0;
+  });
+  if (!hasAnyWeld) return;
+
+  const COLS = 5;
+  const ws = wb.addWorksheet('6. METRAJES SOLDADURA', {
+    pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToHeight: 0, fitToWidth: 1 },
+  });
+  ws.columns = [
+    { key: 'n',          width: 6  },
+    { key: 'estructura', width: 40 },
+    { key: 'metraje',    width: 18 },
+    { key: 'soldadores', width: 18 },
+    { key: 'obs',        width: 24 },
+  ];
+
+  addDocumentHeader(ws, 'CONSOLIDADO DE METRAJES DE SOLDADURA', report, COLS);
+
+  let grandTotalMl = 0, grandTotalSold = 0;
+
+  for (const cfg of weldContractors) {
+    const data = sections[cfg.id];
+    if (!data) continue;
+    const wm = (data as any).weldingMetrics as Array<{ estructura: string; metrajeMl: number; soldadores: number }> | undefined;
+    if (!wm || wm.length === 0) continue;
+
+    const declaredSold = data.personnel?.soldadores ?? 0;
+
+    // Contractor banner
+    ws.addRow([]);
+    const banRn = ws.rowCount;
+    ws.mergeCells(`A${banRn}:E${banRn}`);
+    const banCell = ws.getCell(`A${banRn}`);
+    banCell.value = `${cfg.label}   |   ${cfg.sistema}   |   Soldadores declarados: ${declaredSold}`;
+    banCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.headerBg } };
+    banCell.font  = { bold: true, name: 'Calibri', size: 11, color: { argb: C.white } };
+    banCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    banCell.border = { left: { style: 'thick', color: { argb: 'FFFF6B00' } } };
+    ws.getRow(banRn).height = 26;
+
+    // Column headers
+    ws.addRow(['N\u00B0', 'ESTRUCTURA / TANQUE', 'METRAJE (ml)', 'SOLDADORES', 'OBSERVACIONES']);
+    const hRn = ws.rowCount;
+    ['A','B','C','D','E'].forEach(col => {
+      const cell = ws.getCell(`${col}${hRn}`);
+      cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.fg } };
+      cell.font  = { bold: true, name: 'Calibri', size: 9, color: { argb: C.white } };
+      cell.alignment = { horizontal: col === 'B' ? 'left' : 'center', vertical: 'middle' };
+      cell.border = { top: thin(C.gray), bottom: thin(C.gray), left: thin(C.gray), right: thin(C.gray) };
+    });
+    ws.getRow(hRn).height = 18;
+
+    let cTotalMl = 0, cTotalSold = 0;
+    wm.forEach((row, i) => {
+      cTotalMl   += row.metrajeMl;
+      cTotalSold += row.soldadores;
+      const ml = row.metrajeMl % 1 === 0 ? row.metrajeMl : row.metrajeMl.toFixed(1);
+      ws.addRow([i + 1, row.estructura || '\u2014', ml, row.soldadores, '']);
+      const rn  = ws.rowCount;
+      const bg  = i % 2 === 0 ? C.white : cfg.rowBg;
+      ['A','B','C','D','E'].forEach(col => {
+        const cell = ws.getCell(`${col}${rn}`);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        cell.font = {
+          bold: col === 'C' || col === 'D',
+          name: 'Calibri', size: 10,
+          color: { argb: (col === 'C' || col === 'D') ? cfg.fg : C.black },
+        };
+        cell.alignment = { horizontal: col === 'B' || col === 'E' ? 'left' : 'center', vertical: 'middle' };
+        cell.border = { top: thin('FFDDDDDD'), bottom: thin('FFDDDDDD'), left: thin('FFDDDDDD'), right: thin('FFDDDDDD') };
+      });
+      ws.getRow(rn).height = 20;
+    });
+
+    grandTotalMl   += cTotalMl;
+    grandTotalSold += cTotalSold;
+
+    // Subtotals
+    const cml = cTotalMl % 1 === 0 ? cTotalMl : cTotalMl.toFixed(1);
+    ws.addRow(['', `SUBTOTAL ${cfg.id}`, cml, cTotalSold, '']);
+    const stRn = ws.rowCount;
+    ['A','B','C','D','E'].forEach(col => {
+      const cell = ws.getCell(`${col}${stRn}`);
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cfg.headerBg } };
+      cell.font = { bold: true, name: 'Calibri', size: 10, color: { argb: 'FFFFD700' } };
+      cell.alignment = { horizontal: col === 'B' ? 'left' : 'center', vertical: 'middle' };
+      cell.border = { top: thick(C.gray), bottom: thick(C.gray) };
+    });
+    ws.getRow(stRn).height = 22;
+
+    // Validation note
+    const diff = declaredSold - cTotalSold;
+    const valMsg = diff === 0
+      ? '\u2705 Soldadores asignados = declarados'
+      : `\u26A0\uFE0F Diferencia: ${Math.abs(diff)} soldador(es) ${diff > 0 ? 'sin asignar' : 'en exceso'}`;
+    ws.addRow(['', valMsg, '', '', '']);
+    const valRn = ws.rowCount;
+    ws.mergeCells(`B${valRn}:E${valRn}`);
+    ws.getCell(`B${valRn}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: diff === 0 ? 'FFE8F5E9' : 'FFFFF9C4' } };
+    ws.getCell(`B${valRn}`).font = { italic: true, name: 'Calibri', size: 9, color: { argb: diff === 0 ? 'FF1B5E20' : 'FF8B4000' } };
+    ws.getCell(`B${valRn}`).alignment = { vertical: 'middle' };
+    ws.getRow(valRn).height = 18;
+  }
+
+  // ── GRAN TOTAL ──
+  ws.addRow([]);
+  const gml = grandTotalMl % 1 === 0 ? grandTotalMl : grandTotalMl.toFixed(1);
+  ws.addRow(['', '\u2705  GRAN TOTAL SOLDADURA DEL D\u00CDA', gml, grandTotalSold, '']);
+  const gtRn = ws.rowCount;
+  ['A','B','C','D','E'].forEach(col => {
+    const cell = ws.getCell(`${col}${gtRn}`);
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.green } };
+    cell.font = { bold: true, name: 'Calibri', size: 12, color: { argb: C.white } };
+    cell.alignment = { horizontal: col === 'B' ? 'left' : 'center', vertical: 'middle' };
+    cell.border = { top: thick(C.gray), bottom: thick(C.gray) };
+  });
+  ws.getCell(`C${gtRn}`).font = { bold: true, name: 'Calibri', size: 14, color: { argb: 'FFFFD700' } };
+  ws.getCell(`D${gtRn}`).font = { bold: true, name: 'Calibri', size: 13, color: { argb: 'FFFFD700' } };
+  ws.getRow(gtRn).height = 30;
+
+  addFooter(ws, COLS);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -941,7 +1299,8 @@ export const generateDailyReportExcel = async (report: DailyReportData) => {
   buildSheetContratistas(wb, report);
   buildSheetAvances(wb, report);
   buildSheetSeguridad(wb, report);
-  buildSheetNarrativasContratistas(wb, report); // Sheet 5 — only if new format
+  buildSheetNarrativasContratistas(wb, report);  // Sheet 5 — full detail per contractor
+  buildSheetMetrajesSoldadura(wb, report);        // Sheet 6 — welding metrics (only if data)
 
   // ── Filename ──────────────────────────────────────────────────────────────
   const dateStr    = new Date(report.metadata.date).toISOString().split('T')[0];

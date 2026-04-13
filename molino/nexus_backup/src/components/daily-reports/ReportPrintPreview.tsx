@@ -27,6 +27,12 @@ interface AvanceItem {
   porcentaje: string;
   estado: string;
 }
+interface WeldingMetricRow {
+  estructura:  string;
+  metrajeMl:   number;
+  soldadores:  number;
+}
+
 interface ContractorSection {
   contratista: string;   // 'HL-GISAICO' | 'TECNITANQUES' | 'CYC'
   sistema?: string;      // 'LIXIVIACIÓN' | 'CIP' | 'GENERAL'
@@ -44,7 +50,7 @@ interface ContractorSection {
     andamios:       number;
     camionGrua:     number;
     torreGrua:      number;
-    equipoEspecial: string;  // aligned with ContractorEquipment
+    equipoEspecial: string;
   };
   hsePermisos: HsePermit[];
   seguridad: {
@@ -54,6 +60,7 @@ interface ContractorSection {
     observacionesEpp:    string;
     leccionesAprendidas: string;
   };
+  weldingMetrics?: WeldingMetricRow[];
 }
 
 export interface PrintReportData {
@@ -351,6 +358,54 @@ function ContractorCard({ section }: { section: ContractorSection }) {
             📚 <strong>Lección Aprendida:</strong> {section.seguridad.leccionesAprendidas}
           </div>
         )}
+
+        {/* ── METRAJES DE SOLDADURA — solo TECNITANQUES y CYC ── */}
+        {(section.contratista === 'TECNITANQUES' || section.contratista === 'CYC') &&
+          section.weldingMetrics && section.weldingMetrics.length > 0 && (() => {
+            const totalMl   = section.weldingMetrics!.reduce((s, r) => s + r.metrajeMl,  0);
+            const totalSold = section.weldingMetrics!.reduce((s, r) => s + r.soldadores, 0);
+            const weldColor = section.contratista === 'TECNITANQUES' ? '#1B5E20' : '#4A148C';
+            const weldLight = section.contratista === 'TECNITANQUES' ? '#E8F5E9'  : '#F3E5F5';
+            return (
+              <>
+                <SectionTitle color={weldColor}>◆ METRAJES DE SOLDADURA — RENDIMIENTO DIARIO</SectionTitle>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', fontFamily: 'Arial, sans-serif' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ backgroundColor: weldColor, color: '#FFF', padding: '4px 8px', textAlign: 'center', width: '28px' }}>N°</th>
+                      <th style={{ backgroundColor: weldColor, color: '#FFF', padding: '4px 8px', textAlign: 'left' }}>ESTRUCTURA / TANQUE</th>
+                      <th style={{ backgroundColor: weldColor, color: '#FFF', padding: '4px 8px', textAlign: 'center', width: '88px' }}>METRAJE (ml)</th>
+                      <th style={{ backgroundColor: weldColor, color: '#FFF', padding: '4px 8px', textAlign: 'center', width: '88px' }}>SOLDADORES</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {section.weldingMetrics!.map((row, i) => (
+                      <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#FFFFFF' : weldLight }}>
+                        <td style={{ padding: '3px 8px', borderBottom: '1px solid #E0E0E0', textAlign: 'center', fontWeight: 'bold', color: weldColor }}>{i + 1}</td>
+                        <td style={{ padding: '3px 8px', borderBottom: '1px solid #E0E0E0', fontWeight: '600' }}>{row.estructura || '—'}</td>
+                        <td style={{ padding: '3px 8px', borderBottom: '1px solid #E0E0E0', textAlign: 'center', fontWeight: 'bold', color: weldColor }}>
+                          {row.metrajeMl % 1 === 0 ? row.metrajeMl : row.metrajeMl.toFixed(1)}
+                        </td>
+                        <td style={{ padding: '3px 8px', borderBottom: '1px solid #E0E0E0', textAlign: 'center', fontWeight: 'bold' }}>{row.soldadores}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ backgroundColor: weldColor }}>
+                      <td colSpan={2} style={{ padding: '5px 8px', color: '#FFFFFF', fontWeight: 'bold', fontSize: '9.5px' }}>
+                        🔥 TOTAL SOLDADURA DEL DÍA
+                      </td>
+                      <td style={{ padding: '5px 8px', textAlign: 'center', color: '#FFD700', fontWeight: 'bold', fontSize: '11px' }}>
+                        {totalMl % 1 === 0 ? totalMl : totalMl.toFixed(1)} ml
+                      </td>
+                      <td style={{ padding: '5px 8px', textAlign: 'center', color: '#FFD700', fontWeight: 'bold', fontSize: '10px' }}>
+                        {totalSold} sold.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            );
+          })()
+        }
       </div>
     </div>
   );
@@ -360,20 +415,48 @@ function ContractorCard({ section }: { section: ContractorSection }) {
 export function ReportPrintPreview({ data, onClose }: Props) {
   const { documentControl: dc } = data;
 
+  // Open a clean window with ONLY the document — no overlay, no blank pages
+  const handlePrint = () => {
+    const content = document.getElementById('report-print-root');
+    if (!content) return;
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>${dc.folio} — Reporte Diario SGS</title>
+  <style>
+    *, *::before, *::after {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0; padding: 20px;
+      background: #FFFFFF;
+      font-family: Arial, sans-serif;
+    }
+    @page { size: A4 portrait; margin: 10mm 12mm 12mm 12mm; }
+  </style>
+</head>
+<body>${content.innerHTML}</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const pw   = window.open(url, '_blank', 'width=960,height=800,scrollbars=yes');
+    if (!pw) { URL.revokeObjectURL(url); alert('Permite las ventanas emergentes para imprimir.'); return; }
+    // Revoke blob URL after window loads, then trigger print
+    pw.addEventListener('load', () => {
+      URL.revokeObjectURL(url);
+      setTimeout(() => { pw.focus(); pw.print(); }, 300);
+    });
+  };
+
   return (
     <>
-      {/* Print CSS — injected inline to avoid Next.js style conflicts */}
-      <style>{`
-        @media print {
-          body * { visibility: hidden !important; }
-          #report-print-root, #report-print-root * { visibility: visible !important; }
-          #report-print-root { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; }
-          #print-toolbar { display: none !important; }
-          @page { size: A4; margin: 12mm 14mm 14mm 14mm; }
-        }
-      `}</style>
-
-      {/* Overlay backdrop */}
+      {/* Overlay backdrop — screen only, never printed */}
       <div style={{
         position: 'fixed', inset: 0, zIndex: 9999,
         backgroundColor: 'rgba(0,0,0,0.85)',
@@ -384,7 +467,7 @@ export function ReportPrintPreview({ data, onClose }: Props) {
         padding: '16px',
       }}>
         {/* Toolbar */}
-        <div id="print-toolbar" style={{
+        <div style={{
           width: '100%',
           maxWidth: '900px',
           display: 'flex',
@@ -396,7 +479,7 @@ export function ReportPrintPreview({ data, onClose }: Props) {
             Vista Previa — {dc.folio}
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
-            <Button size="sm" onClick={() => window.print()} className="bg-orange-600 hover:bg-orange-700 gap-2">
+            <Button size="sm" onClick={handlePrint} className="bg-orange-600 hover:bg-orange-700 gap-2">
               <Printer className="w-4 h-4" /> Imprimir / PDF
             </Button>
             <Button size="sm" variant="ghost" onClick={onClose} className="text-white border border-white/20 gap-2">

@@ -14792,6 +14792,35 @@ export const EQUIPOS_TECNICOS: EquipoTecnico[] = [
     "rev": "1",
     "wbs": "WBS Alcantarrillado",
     "sub_wbs": "WBS 3120 Agua de sello"
+  },
+  {
+    "item": 495,
+    "tag": "ESP-CON-001",
+    "nombre": "ESPESADOR DE CONCENTRADOS HRT-035",
+    "descripcion": "Espesador de alto rendimiento (HRT) para concentrados de oro/plata. Diámetro: 35 m. Altura de pared lateral: 2,800 mm. Inclinación del suelo: 1:6. Tanque de acero al carbono atornillado, soporte independiente tipo viga radial. Sistema de alimentación Metso Reactorwell™ (Ø 4,000 mm) con Autodilución direccional. Capacidad de alimentación: 512.4 m³/h volumen, 183.5 t/h sólidos. Accionamiento de rastras hidráulico (SAI GM2 300 + Engranaje Planetario Reggiana Riduttori). Par de diseño máximo: 800,000 Nm. Velocidad: 0.055 rpm. Elevador de rastras hidráulico Mega (300 mm de recorrido). Unidad de Potencia Hidráulica (HPU): Motor WEG 11 kW, 460 V, 60 Hz.",
+    "estado": "5000 tpd (nuevo)",
+    "capacidad": "512.4 m³/h volumen / 183.5 t/h sólidos",
+    "peso_kg": "TBA",
+    "paquete": "TBA",
+    "orden_compra": "TBA",
+    "proveedor": "Metso",
+    "marca": "Metso",
+    "modelo": "HRT-035",
+    "estado_proveedor": "En Fabricación",
+    "servicio": "Continuo",
+    "tipo_accionamiento": "Hidráulico",
+    "metodo_arranque": "N/A",
+    "potencia_kw": "11",
+    "voltaje_v": "460",
+    "cantidad_motores": "1",
+    "criticidad_potencia": "N/A",
+    "doc_ingenieria": "OU500911039",
+    "pid": "",
+    "pfd": "LM-ED-PRP-1510-4000-0002",
+    "comentarios": "Manual IOM Metso: OU500911039 Rev 0. Procedimiento Contratista: LM-HLGS-C-1000-3940-PRO-0034 Rev A. Par torque diseño máx: 800,000 Nm. Velocidad rastra: 0.055 rpm. Proyecto: Marmato Lower Mine Expansion — MIL24.001.",
+    "rev": "A",
+    "wbs": "WBS 1510",
+    "sub_wbs": "WBS 1510 Espesamiento de Concentrados"
   }
 ];
 
@@ -14813,6 +14842,7 @@ export const WBS_GRUPOS: string[] = [
   "WBS 1420 CIP",
   "WBS 1440 Pre-lixiviación",
   "WBS 1505 Tanques de desintoxicación de cianuro",
+  "WBS 1510 Espesamiento de Concentrados",
   "WBS 1700 Goldroom / Smelt House",
   "WBS 1805 Reagentes General",
   "WBS 1815 Cianuro de sodio",

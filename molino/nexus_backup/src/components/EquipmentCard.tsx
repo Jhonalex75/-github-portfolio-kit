@@ -483,7 +483,8 @@ export function EquipmentCard({
                       <p className="text-[10px] font-mono-tech text-white/30 uppercase tracking-widest">Cargando etapas...</p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <ScrollArea className="h-[480px] border border-white/5 rounded-none">
+                    <div className="space-y-2 p-1">
                       {stepsToShow.map((step) => {
                         const sc = ASSEMBLY_STEP_STATUS_COLORS[step.status];
                         const isEditing = editingStepId === step.id;
@@ -600,6 +601,7 @@ export function EquipmentCard({
                         );
                       })}
                     </div>
+                    </ScrollArea>
                   )}
 
                   <input ref={stepPhotoInputRef} type="file" accept="image/*" className="hidden" onChange={handleStepPhotoChange} />
