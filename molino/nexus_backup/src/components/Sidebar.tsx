@@ -20,6 +20,7 @@ import {
   CalendarDays,
   FileText,
   BookMarked,
+  GalleryHorizontalEnd,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,7 @@ export function Sidebar() {
     { name: "Research Center", icon: SearchCode, href: "/research" },
     { name: "PDT Schedule", icon: CalendarDays, href: "/pdt-schedule" },
     { name: "Reportes Diarios", icon: FileText, href: "/daily-reports" },
+    { name: "Galería de Campo", icon: GalleryHorizontalEnd, href: "/fotos-campo" },
     { name: "Biblioteca de Planos", icon: BookMarked, href: "/planos" },
   ];
 
