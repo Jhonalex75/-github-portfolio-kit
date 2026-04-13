@@ -298,6 +298,27 @@ service cloud.firestore {
       allow delete: if isAdmin(request.auth.uid);
     }
 
+    // ===== GALERÍA DE CAMPO — TAGs de equipos =====
+    match /equipment_photo_tags/{tagId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (
+                       request.auth.uid == "R3MVwE12nVMg128Kv6bdwJ6MKav1" ||
+                       isAdmin(request.auth.uid)
+                    );
+    }
+
+    // ===== GALERÍA DE CAMPO — Metadatos de fotos =====
+    match /equipment_photos_meta/{photoId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (
+                       request.auth.uid == "R3MVwE12nVMg128Kv6bdwJ6MKav1" ||
+                       isAdmin(request.auth.uid)
+                    );
+    }
+
     // ===== DEFAULT DENY ALL =====
     match /{document=**} {
       allow read, write: if false;
