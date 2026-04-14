@@ -41,6 +41,8 @@ import {
   CheckCircle2,
   Eye,
   ImageIcon,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { useUser, useFirestore, useStorage } from '@/firebase';
 import {
@@ -227,9 +229,12 @@ export default function FotosCampoPage() {
   // Lightbox
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [imgLoading, setImgLoading] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tagDropdownRef = useRef<HTMLDivElement>(null);
+  const filmstripRef = useRef<HTMLDivElement>(null);
 
   // ── Auth guard ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -305,10 +310,22 @@ export default function FotosCampoPage() {
       if (e.key === 'ArrowLeft' && lightboxIdx > 0)
         setLightboxIdx((i) => (i ?? 0) - 1);
       if (e.key === 'Escape') setLightboxIdx(null);
+      if (e.key === 'z' || e.key === 'Z') setZoomed((z) => !z);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxIdx, photos.length]);
+
+  // ── Filmstrip auto-scroll + reset zoom/loading on slide change ─────────────
+  useEffect(() => {
+    if (lightboxIdx === null) return;
+    setImgLoading(true);
+    setZoomed(false);
+    if (filmstripRef.current) {
+      const el = filmstripRef.current.children[lightboxIdx] as HTMLElement;
+      if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, [lightboxIdx]);
 
   // ── Create TAG ─────────────────────────────────────────────────────────────
   const handleCreateTag = async () => {
@@ -804,8 +821,13 @@ export default function FotosCampoPage() {
                   <p className="text-slate-600 text-xs">o crea uno nuevo con el botón +</p>
                 </div>
               ) : loadingPhotos ? (
-                <div className="flex items-center justify-center h-72">
-                  <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="aspect-square bg-slate-800/60 rounded-lg border border-slate-700/30 animate-pulse"
+                    />
+                  ))}
                 </div>
               ) : photos.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-72 border border-dashed border-slate-700/40 rounded-xl gap-3">
@@ -854,15 +876,30 @@ export default function FotosCampoPage() {
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           loading="lazy"
                         />
+                        {/* Index badge — always visible */}
+                        <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center group-hover:opacity-0 transition-opacity">
+                          <span className="text-[9px] font-mono text-white/70 leading-none">{idx + 1}</span>
+                        </div>
                         {/* Hover overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="absolute bottom-0 left-0 right-0 p-2">
-                            <p className="text-[9px] text-slate-300 font-mono truncate">
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+                            <Eye className="w-4 h-4 text-white/80" />
+                            <span className="text-[8px] font-mono text-white/50">{idx + 1}/{photos.length}</span>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 p-2 space-y-0.5">
+                            <p className="text-[9px] text-slate-200 font-mono truncate leading-tight">
                               {photo.fileName}
                             </p>
-                            <p className="text-[9px] text-slate-400">{fmtSize(photo.fileSizeKb)}</p>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] text-cyan-400">{fmtSize(photo.fileSizeKb)}</span>
+                              {photo.width > 0 && (
+                                <span className="text-[8px] text-slate-500">{photo.width}×{photo.height}</span>
+                              )}
+                            </div>
+                            <p className="text-[8px] text-slate-400 truncate">
+                              {photo.uploadedByName}
+                            </p>
                           </div>
-                          <Eye className="absolute top-2 right-2 w-4 h-4 text-white/60" />
                         </div>
                         {/* Contractor badge */}
                         {photo.contratista && photo.contratista !== 'Sin asignar' && (
@@ -1175,139 +1212,181 @@ export default function FotosCampoPage() {
           Lightbox
       ══════════════════════════════════════════════════════════════════════ */}
       {lightboxIdx !== null && photos[lightboxIdx] && (
-        <div
-          className="fixed inset-0 bg-black/96 z-50 flex items-center justify-center"
-          onClick={() => setLightboxIdx(null)}
-        >
-          {/* Close */}
-          <button
-            className="absolute top-4 right-4 text-white/60 hover:text-white transition-colors z-10 bg-black/40 rounded-full p-2"
-            onClick={() => setLightboxIdx(null)}
-            aria-label="Cerrar"
-          >
-            <X className="w-5 h-5" />
-          </button>
+        <div className="fixed inset-0 bg-black/95 z-50 flex flex-col" onClick={() => setLightboxIdx(null)}>
 
-          {/* Counter */}
-          <div className="absolute top-4 left-4 text-white/50 text-xs font-mono z-10">
-            {lightboxIdx + 1} / {photos.length}
+          {/* ── Top bar ───────────────────────────────────────────────────── */}
+          <div className="shrink-0 flex items-center justify-between px-4 py-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <span className="text-white/60 text-xs font-mono">
+                {lightboxIdx + 1} / {photos.length}
+              </span>
+              <Badge className="text-[9px] bg-slate-800/80 text-slate-300 border-slate-700 backdrop-blur-sm">
+                {selectedTag}
+              </Badge>
+              <span className="text-slate-600 text-xs font-mono">{selectedDate}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Zoom toggle */}
+              <button
+                title={zoomed ? 'Ajustar (Z)' : 'Ampliar (Z)'}
+                onClick={(e) => { e.stopPropagation(); setZoomed((z) => !z); }}
+                className="text-white/50 hover:text-white transition-colors bg-black/40 rounded-full p-2"
+              >
+                {zoomed ? <ZoomOut className="w-4 h-4" /> : <ZoomIn className="w-4 h-4" />}
+              </button>
+              <button
+                className="text-white/60 hover:text-white transition-colors bg-black/40 rounded-full p-2"
+                onClick={() => setLightboxIdx(null)}
+                aria-label="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
-          {/* Nav prev */}
-          {lightboxIdx > 0 && (
-            <button
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors z-10 bg-black/50 rounded-full p-3 backdrop-blur-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLightboxIdx((i) => (i ?? 1) - 1);
-              }}
-              aria-label="Anterior"
-            >
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-          )}
+          {/* ── Image area ────────────────────────────────────────────────── */}
+          <div className="flex-1 flex items-center justify-center relative min-h-0 px-14 overflow-hidden">
+            {/* Nav prev */}
+            {lightboxIdx > 0 && (
+              <button
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors z-10 bg-black/50 hover:bg-black/70 rounded-full p-3 backdrop-blur-sm"
+                onClick={(e) => { e.stopPropagation(); setLightboxIdx((i) => (i ?? 1) - 1); }}
+                aria-label="Anterior"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+            )}
 
-          {/* Nav next */}
-          {lightboxIdx < photos.length - 1 && (
-            <button
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors z-10 bg-black/50 rounded-full p-3 backdrop-blur-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLightboxIdx((i) => (i ?? 0) + 1);
-              }}
-              aria-label="Siguiente"
-            >
-              <ChevronRight className="w-6 h-6" />
-            </button>
-          )}
-
-          {/* Image */}
-          <div
-            className="flex flex-col items-center max-w-[90vw] max-h-[90vh]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={photos[lightboxIdx].downloadUrl}
-              alt={photos[lightboxIdx].fileName}
-              className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-2xl"
-            />
-
-            {/* Info bar */}
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-3 text-xs font-mono text-slate-400">
-              <span className="text-slate-300">{photos[lightboxIdx].fileName}</span>
-              <span className="text-slate-700">·</span>
-              <span>{fmtSize(photos[lightboxIdx].fileSizeKb)}</span>
-              {photos[lightboxIdx].originalSizeKb > photos[lightboxIdx].fileSizeKb && (
-                <>
-                  <span className="text-slate-700">·</span>
-                  <span className="text-emerald-400">
-                    {Math.round(
-                      (1 - photos[lightboxIdx].fileSizeKb / photos[lightboxIdx].originalSizeKb) * 100,
-                    )}
-                    % comprimido
-                  </span>
-                </>
+            {/* Image container */}
+            <div
+              className={cn(
+                'relative flex items-center justify-center transition-all duration-200',
+                zoomed ? 'overflow-auto w-full h-full cursor-zoom-out' : 'cursor-zoom-in',
               )}
-              {photos[lightboxIdx].width > 0 && (
-                <>
-                  <span className="text-slate-700">·</span>
-                  <span>
-                    {photos[lightboxIdx].width}×{photos[lightboxIdx].height} px
-                  </span>
-                </>
+              onClick={(e) => { e.stopPropagation(); setZoomed((z) => !z); }}
+            >
+              {imgLoading && (
+                <div className="absolute inset-0 flex items-center justify-center z-10">
+                  <Loader2 className="w-8 h-8 animate-spin text-cyan-400/70" />
+                </div>
               )}
-              {photos[lightboxIdx].contratista &&
-                photos[lightboxIdx].contratista !== 'Sin asignar' && (
-                  <>
-                    <span className="text-slate-700">·</span>
-                    <Badge className="text-[9px] bg-slate-800 text-slate-300 border-slate-700">
-                      {photos[lightboxIdx].contratista}
-                    </Badge>
-                  </>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                key={photos[lightboxIdx].id}
+                src={photos[lightboxIdx].downloadUrl}
+                alt={photos[lightboxIdx].fileName}
+                onLoad={() => setImgLoading(false)}
+                className={cn(
+                  'rounded-lg shadow-2xl transition-opacity duration-300 select-none',
+                  imgLoading ? 'opacity-0' : 'opacity-100',
+                  zoomed
+                    ? 'max-w-none max-h-none w-auto h-auto'
+                    : 'max-w-full max-h-[calc(100vh-230px)] object-contain',
                 )}
-              {photos[lightboxIdx].notes && (
-                <>
-                  <span className="text-slate-700">·</span>
-                  <span className="text-amber-300 italic">{photos[lightboxIdx].notes}</span>
-                </>
-              )}
-              <span className="text-slate-700">·</span>
-              <span>por {photos[lightboxIdx].uploadedByName}</span>
+              />
             </div>
 
-            {/* Actions */}
-            <div className="mt-3 flex items-center gap-3">
-              <a
-                href={photos[lightboxIdx].downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 transition-colors bg-slate-800/90 px-3 py-1.5 rounded-md border border-slate-700 backdrop-blur-sm"
-                onClick={(e) => e.stopPropagation()}
+            {/* Nav next */}
+            {lightboxIdx < photos.length - 1 && (
+              <button
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors z-10 bg-black/50 hover:bg-black/70 rounded-full p-3 backdrop-blur-sm"
+                onClick={(e) => { e.stopPropagation(); setLightboxIdx((i) => (i ?? 0) + 1); }}
+                aria-label="Siguiente"
               >
-                <Download className="w-3.5 h-3.5" /> Descargar
-              </a>
-              {isAdmin && (
-                <Button
-                  size="sm"
-                  variant="ghost"
+                <ChevronRight className="w-6 h-6" />
+              </button>
+            )}
+          </div>
+
+          {/* ── Info + actions bar ────────────────────────────────────────── */}
+          <div className="shrink-0 px-4 py-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs font-mono text-slate-400" onClick={(e) => e.stopPropagation()}>
+            <span className="text-slate-200 font-medium">{photos[lightboxIdx].fileName}</span>
+            <span className="text-slate-700">·</span>
+            <span className="text-cyan-400">{fmtSize(photos[lightboxIdx].fileSizeKb)}</span>
+            {photos[lightboxIdx].originalSizeKb > photos[lightboxIdx].fileSizeKb && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span className="text-emerald-400">
+                  {Math.round((1 - photos[lightboxIdx].fileSizeKb / photos[lightboxIdx].originalSizeKb) * 100)}% comprimido
+                </span>
+              </>
+            )}
+            {photos[lightboxIdx].width > 0 && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span>{photos[lightboxIdx].width}×{photos[lightboxIdx].height} px</span>
+              </>
+            )}
+            {photos[lightboxIdx].contratista && photos[lightboxIdx].contratista !== 'Sin asignar' && (
+              <>
+                <span className="text-slate-700">·</span>
+                <Badge className="text-[9px] bg-slate-800 text-slate-300 border-slate-700">
+                  {photos[lightboxIdx].contratista}
+                </Badge>
+              </>
+            )}
+            {photos[lightboxIdx].notes && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span className="text-amber-300 italic">{photos[lightboxIdx].notes}</span>
+              </>
+            )}
+            <span className="text-slate-700">·</span>
+            <span className="text-slate-500">por {photos[lightboxIdx].uploadedByName}</span>
+            <span className="text-slate-700 mx-1">|</span>
+            <a
+              href={photos[lightboxIdx].downloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Download className="w-3 h-3" /> Descargar
+            </a>
+            {isAdmin && (
+              <>
+                <span className="text-slate-700">·</span>
+                <button
                   disabled={deleting === photos[lightboxIdx].id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(photos[lightboxIdx]);
-                  }}
-                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10 text-xs h-8 px-3 border border-red-500/20"
+                  onClick={(e) => { e.stopPropagation(); handleDelete(photos[lightboxIdx]); }}
+                  className="flex items-center gap-1 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
                 >
                   {deleting === photos[lightboxIdx].id ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <Loader2 className="w-3 h-3 animate-spin" />
                   ) : (
-                    <>
-                      <Trash2 className="w-3.5 h-3.5 mr-1" /> Eliminar
-                    </>
+                    <><Trash2 className="w-3 h-3" /> Eliminar</>
                   )}
-                </Button>
-              )}
-            </div>
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* ── Filmstrip ─────────────────────────────────────────────────── */}
+          <div
+            ref={filmstripRef}
+            className="shrink-0 flex gap-2 px-4 pb-4 pt-1 overflow-x-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {photos.map((p, i) => (
+              <button
+                key={p.id}
+                onClick={() => setLightboxIdx(i)}
+                className={cn(
+                  'shrink-0 w-14 h-14 rounded-md overflow-hidden border-2 transition-all duration-150',
+                  i === lightboxIdx
+                    ? 'border-cyan-400 scale-110 shadow-lg shadow-cyan-500/30'
+                    : 'border-transparent opacity-50 hover:opacity-80 hover:border-slate-500',
+                )}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={p.downloadUrl}
+                  alt={p.fileName}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </button>
+            ))}
           </div>
         </div>
       )}
