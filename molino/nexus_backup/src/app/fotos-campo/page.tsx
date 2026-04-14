@@ -98,6 +98,7 @@ interface PhotoMeta {
 
 interface UploadItem {
   file: File;
+  previewUrl: string;
   status: 'pending' | 'compressing' | 'uploading' | 'done' | 'error';
   progress: number;
   compressedSizeKb: number;
@@ -346,6 +347,7 @@ export default function FotosCampoPage() {
     if (!files || files.length === 0) return;
     const items: UploadItem[] = Array.from(files).map((f) => ({
       file: f,
+      previewUrl: URL.createObjectURL(f),
       status: 'pending',
       progress: 0,
       compressedSizeKb: 0,
@@ -356,6 +358,13 @@ export default function FotosCampoPage() {
       return [...existing, ...items];
     });
     setShowUpload(true);
+  };
+
+  // ── Cleanup preview URLs on modal close ───────────────────────────────────
+  const closeUploadModal = () => {
+    uploadItems.forEach((i) => URL.revokeObjectURL(i.previewUrl));
+    setShowUpload(false);
+    setUploadItems([]);
   };
 
   // ── Upload ─────────────────────────────────────────────────────────────────
@@ -960,10 +969,7 @@ export default function FotosCampoPage() {
       <Dialog
         open={showUpload}
         onOpenChange={(v) => {
-          if (!uploading) {
-            setShowUpload(v);
-            if (!v) setUploadItems([]);
-          }
+          if (!uploading && !v) closeUploadModal();
         }}
       >
         <DialogContent className="bg-slate-900 border-slate-700 text-slate-200 max-w-lg">
@@ -979,12 +985,36 @@ export default function FotosCampoPage() {
 
           <div className="space-y-4 py-1">
             {/* File list */}
-            <div className="space-y-2 max-h-52 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-slate-800 scrollbar-thumb-slate-700">
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-slate-800 scrollbar-thumb-slate-700">
               {uploadItems.map((item, i) => (
                 <div
                   key={i}
-                  className="bg-slate-800/80 rounded-md p-2.5 flex items-center gap-3 border border-slate-700/40"
+                  className="bg-slate-800/80 rounded-md p-2 flex items-center gap-3 border border-slate-700/40"
                 >
+                  {/* Thumbnail preview */}
+                  <div className="shrink-0 w-14 h-14 rounded-md overflow-hidden bg-slate-700 border border-slate-600 relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.previewUrl}
+                      alt={item.file.name}
+                      className="w-full h-full object-cover"
+                    />
+                    {item.status === 'done' && (
+                      <div className="absolute inset-0 bg-emerald-500/30 flex items-center justify-center">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                      </div>
+                    )}
+                    {item.status === 'uploading' && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <span className="text-[10px] font-mono text-cyan-400 font-bold">{item.progress}%</span>
+                      </div>
+                    )}
+                    {item.status === 'compressing' && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      </div>
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-mono text-slate-300 truncate">{item.file.name}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
@@ -1002,40 +1032,31 @@ export default function FotosCampoPage() {
                       )}
                     </div>
                   </div>
-                  {/* Status */}
-                  <div className="shrink-0 w-28 text-right">
+                  {/* Status badge */}
+                  <div className="shrink-0 w-24 text-right">
                     {item.status === 'pending' && (
                       <span className="text-[10px] text-slate-500">En espera</span>
                     )}
                     {item.status === 'compressing' && (
-                      <div className="flex items-center justify-end gap-1 text-amber-400">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span className="text-[10px]">Comprimiendo</span>
-                      </div>
+                      <span className="text-[10px] text-amber-400">Comprimiendo...</span>
                     )}
                     {item.status === 'uploading' && (
                       <div>
-                        <div className="flex items-center justify-end gap-1 mb-1">
-                          <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
-                          <span className="text-[10px] text-cyan-400">{item.progress}%</span>
-                        </div>
-                        <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mt-1">
                           <div
                             className="h-full bg-cyan-500 rounded-full transition-all duration-300"
                             style={{ width: `${item.progress}%` }}
                           />
                         </div>
+                        <span className="text-[10px] text-cyan-400">{item.progress}%</span>
                       </div>
                     )}
                     {item.status === 'done' && (
-                      <div className="flex items-center justify-end gap-1 text-emerald-400">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span className="text-[10px]">Listo</span>
-                      </div>
+                      <span className="text-[10px] text-emerald-400 font-bold">✓ Listo</span>
                     )}
                     {item.status === 'error' && (
                       <div className="flex items-center justify-end gap-1 text-red-400">
-                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <AlertTriangle className="w-3 h-3" />
                         <span className="text-[10px]">Error</span>
                       </div>
                     )}
@@ -1120,10 +1141,7 @@ export default function FotosCampoPage() {
           <DialogFooter>
             <Button
               variant="ghost"
-              onClick={() => {
-                setShowUpload(false);
-                setUploadItems([]);
-              }}
+              onClick={closeUploadModal}
               disabled={uploading}
               className="text-slate-400 hover:text-slate-200"
             >
