@@ -972,8 +972,8 @@ export default function FotosCampoPage() {
           if (!uploading && !v) closeUploadModal();
         }}
       >
-        <DialogContent className="bg-slate-900 border-slate-700 text-slate-200 max-w-lg">
-          <DialogHeader>
+        <DialogContent className="bg-slate-900 border-slate-700 text-slate-200 max-w-lg flex flex-col max-h-[90vh] overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="font-display font-black tracking-widest uppercase text-cyan-400 flex items-center gap-2 text-sm">
               <Upload className="w-4 h-4" /> SUBIR FOTOS
             </DialogTitle>
@@ -983,9 +983,9 @@ export default function FotosCampoPage() {
             </p>
           </DialogHeader>
 
-          <div className="space-y-4 py-1">
-            {/* File list */}
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-slate-800 scrollbar-thumb-slate-700">
+          <div className="flex-1 overflow-y-auto space-y-4 py-1 pr-1">
+            {/* File list — previews */}
+            <div className="space-y-2">
               {uploadItems.map((item, i) => (
                 <div
                   key={i}
@@ -1138,7 +1138,7 @@ export default function FotosCampoPage() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 pt-2 border-t border-slate-800">
             <Button
               variant="ghost"
               onClick={closeUploadModal}
