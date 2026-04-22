@@ -23,12 +23,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
-  Loader2, Camera, Plus, Trash2, FileSpreadsheet,
+  Loader2, Camera, Plus, Trash2, Calendar, Clock,
   Save, FileText, CheckCircle2, AlertTriangle,
   Shield, Users, Edit2, ChevronDown, ClipboardList,
   Building2, MessageSquare, TrendingUp, Percent,
-  HardHat, AlertCircle, BookOpen, Printer,
+  HardHat, AlertCircle, BookOpen, Printer, Sparkles, FileSpreadsheet,
 } from 'lucide-react';
+import { extractDailyReportFromPdf } from '@/ai/flows/extract-daily-report-from-pdf';
 import { generateDailyReportExcel, DailyReportData } from '@/lib/excel-generator';
 import { MonthlyDashboard } from '@/components/daily-reports/MonthlyDashboard';
 import { ContractorActivityDashboard } from '@/components/daily-reports/ContractorActivityDashboard';
@@ -128,6 +129,7 @@ interface ContractorLostHours {
   malClima:       number;
   parosHSE:       number;
   fallasTecnicas: number;
+  charlaInfo:     number;
 }
 interface SafetyInfo {
   comments:         string;
@@ -166,7 +168,7 @@ const DEFAULT_CONTRACTOR_DATA = (): PerContractorData => ({
   checklist:      { ...EMPTY_CHECKLIST },
   safetyInfo:     { ...EMPTY_SAFETY },
   equipment:      { grua: 0, generador: 0, andamios: 0, camionGrua: 0, torreGrua: 0, equipoEspecial: '' },
-  lostHours:      { malClima: 0, parosHSE: 0, fallasTecnicas: 0 },
+  lostHours:      { malClima: 0, parosHSE: 0, fallasTecnicas: 0, charlaInfo: 0 },
   weldingMetrics: [],
 });
 
@@ -274,6 +276,7 @@ function resolveContractorData(r: ReportDoc, cid: ContractorId): PerContractorDa
         malClima:       old.lostHours.malClima       ?? 0,
         parosHSE:       old.lostHours.parosHSE       ?? 0,
         fallasTecnicas: old.lostHours.fallasTecnicas ?? 0,
+        charlaInfo:     old.lostHours.charlaInfo     ?? 0,
       };
     }
     // Also try legacy recursos_frente
@@ -396,6 +399,7 @@ export default function DailyReportsPage() {
   type TabId = 'meta' | 'hse' | 'recursos' | 'equipos' | 'seguridad' | 'admin' | 'evidencia';
   const [tab,             setTab]             = useState<TabId>('meta');
   const [weather,         setWeather]         = useState('Soleado ☀️');
+  const [reportDate,      setReportDate]      = useState<string>(new Date().toISOString().slice(0, 10));
   const [adminActivities, setAdminActivities] = useState<AdminActivity[]>(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
   const [evidence,        setEvidence]        = useState<Evidence[]>([]);
 
@@ -408,6 +412,9 @@ export default function DailyReportsPage() {
   const [search,          setSearch]          = useState('');
   const [lastId,          setLastId]          = useState<string | null>(null);
   const [printingReport,  setPrintingReport]  = useState<ReportDoc | null>(null);
+  const [isExtractingAI,  setIsExtractingAI]  = useState(false);
+
+  const aiFileRef = useRef<HTMLInputElement>(null);
 
   // ── Derived ──
   const activeData = contractorSections[activeContractorId];
@@ -507,6 +514,150 @@ export default function DailyReportsPage() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  // ── AI Extraction ──
+  const handleAIExtract = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const MAX_SIZE_MB = 15;
+    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+      toast({
+        variant: 'destructive',
+        title: 'Archivo muy grande',
+        description: `El documento supera los ${MAX_SIZE_MB}MB. Usa un PDF comprimido o una imagen de menor resolución.`,
+      });
+      if (aiFileRef.current) aiFileRef.current.value = '';
+      return;
+    }
+
+    try {
+      setIsExtractingAI(true);
+      toast({
+        title: '✨ Modo IA Activado',
+        description: `Analizando ${file.name}... esto puede tardar unos 15-30 segundos.`,
+      });
+
+      const reader = new FileReader();
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const result = await extractDailyReportFromPdf({ pdfDataUri: base64Data });
+
+      if (result.weather && WEATHER_OPTIONS.includes(result.weather)) {
+        setWeather(result.weather);
+      } else if (result.weather) {
+        setWeather(result.weather + ' (Aprox)');
+      }
+      if (result.reportDate) setReportDate(result.reportDate);
+
+      setContractorSections(prev => {
+        const cs = { ...prev };
+        const mapContractor = (cid: ContractorId, data: typeof result.hlGisaico) => {
+          if (!data) return;
+          const d = {
+            ...cs[cid],
+            personnel:  { ...cs[cid].personnel },
+            equipment:  { ...cs[cid].equipment },
+            lostHours:  { ...cs[cid].lostHours },
+            checklist:  { ...cs[cid].checklist },
+            safetyInfo: { ...cs[cid].safetyInfo },
+          };
+
+          if (data.activities)             d.activities                = data.activities;
+
+          if (data.mecanicos      !== undefined) d.personnel.mecanicos      = data.mecanicos;
+          if (data.soldadores     !== undefined) d.personnel.soldadores     = data.soldadores;
+          if (data.auxiliares     !== undefined) d.personnel.auxiliares     = data.auxiliares;
+          if (data.armadores      !== undefined) d.personnel.armadores      = data.armadores;
+          if (data.inspectoresHSE !== undefined) d.personnel.inspectoresHSE = data.inspectoresHSE;
+
+          if (data.grua       !== undefined) d.equipment.grua       = data.grua;
+          if (data.generador  !== undefined) d.equipment.generador  = data.generador;
+          if (data.andamios   !== undefined) d.equipment.andamios   = data.andamios;
+          if (data.camionGrua !== undefined) d.equipment.camionGrua = data.camionGrua;
+          if (data.torreGrua  !== undefined) d.equipment.torreGrua  = data.torreGrua;
+
+          if (data.malClima       !== undefined) d.lostHours.malClima       = data.malClima;
+          if (data.parosHSE       !== undefined) d.lostHours.parosHSE       = data.parosHSE;
+          if (data.fallasTecnicas !== undefined) d.lostHours.fallasTecnicas = data.fallasTecnicas;
+          if (data.charlaInfo     !== undefined) d.lostHours.charlaInfo     = data.charlaInfo;
+
+          if (data.workAtHeights !== undefined) d.checklist.workAtHeights = data.workAtHeights;
+          if (data.hotWork       !== undefined) d.checklist.hotWork       = data.hotWork;
+          if (data.confinedSpace !== undefined) d.checklist.confinedSpace = data.confinedSpace;
+          if (data.scaffolding   !== undefined) d.checklist.scaffolding   = data.scaffolding;
+
+          if (data.incidents      !== undefined) d.safetyInfo.incidents     = data.incidents;
+          if (data.nearMisses     !== undefined) d.safetyInfo.nearMisses    = data.nearMisses;
+          if (data.safetyComments)               d.safetyInfo.comments      = data.safetyComments;
+
+          cs[cid] = d;
+        };
+
+        mapContractor('HL-GISAICO',   result.hlGisaico);
+        mapContractor('TECNITANQUES', result.tecnitanques);
+        mapContractor('CYC',          result.cyc);
+
+        // Global safety notes → HL-GISAICO eppObservations
+        if (result.globalSafetyNotes) {
+          const hl = { ...cs['HL-GISAICO'], safetyInfo: { ...cs['HL-GISAICO'].safetyInfo } };
+          hl.safetyInfo.eppObservations = result.globalSafetyNotes;
+          cs['HL-GISAICO'] = hl;
+        }
+
+        return cs;
+      });
+
+      if (result.adminActivities?.length) {
+        setAdminActivities(prev => {
+          const updated = [...prev];
+          result.adminActivities!.forEach(aiAct => {
+            const idx = updated.findIndex(a => a.name.toLowerCase().includes(aiAct.name.toLowerCase()));
+            if (idx >= 0) updated[idx].progress = aiAct.progress;
+            else updated.push({ name: aiAct.name, progress: aiAct.progress });
+          });
+          return updated;
+        });
+      }
+
+      // Upload as evidence
+      const key = `${file.name}_AI_ev`;
+      setProgress(p => ({ ...p, [key]: 10 }));
+      const type = file.type.includes('pdf') ? 'pdf' : 'photo';
+      const upRes = await uploadFileToStorage(firebaseApp, file, ACTIVE_PROJECT, pct => setProgress(p => ({ ...p, [key]: 10 + Math.round(pct * 0.9) })));
+      if (upRes.success && upRes.downloadUrl) {
+        setEvidence(prev => [...prev, { type, urlOrBase64: upRes.downloadUrl!, name: file.name, uploadMethod: 'storage' }]);
+      }
+      setTimeout(() => setProgress(p => { const n = { ...p }; delete n[key]; return n; }), 2000);
+
+      const photosFound  = result.detectedPhotos?.length ?? 0;
+      const dateDetected = result.reportDate ? ` · Fecha: ${result.reportDate}` : '';
+      const photosNote   = photosFound > 0 ? ` · ${photosFound} foto(s) detectada(s)` : '';
+      toast({
+        title: '✅ Extracción IA Exitosa',
+        description: `Confianza: ${Math.round(result.confidence * 100)}%${dateDetected}${photosNote}. Verifica los campos.`,
+      });
+
+    } catch (err) {
+      console.error(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      const isOverload = msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
+      toast({
+        variant: 'destructive',
+        title: isOverload ? 'Modelo IA saturado' : 'Error de IA',
+        description: isOverload
+          ? 'Gemini está con alta demanda. Intenta de nuevo en 30–60 segundos.'
+          : 'Falló la extracción. El documento puede ser ilegible o superar la capacidad del modelo.',
+      });
+    } finally {
+      setIsExtractingAI(false);
+      if (aiFileRef.current) aiFileRef.current.value = '';
+    }
+  };
+
   // ── Build Firestore payload ──
   const buildPayload = (consecutiveId: string, status: 'anchored' | 'draft' = 'anchored') => {
     const hlData = contractorSections['HL-GISAICO'];
@@ -536,7 +687,7 @@ export default function DailyReportsPage() {
     return {
       metadata: {
         consecutiveId,
-        date:        new Date().toISOString(),
+        date:        new Date(reportDate + 'T12:00:00').toISOString(),
         weather,
         authorUid:   user!.uid,
         authorName:  user!.displayName || user!.email || 'Ing. Certificado',
@@ -565,6 +716,7 @@ export default function DailyReportsPage() {
     setContractorSections(DEFAULT_SECTIONS());
     setActiveContractorId('HL-GISAICO');
     setWeather('Soleado ☀️');
+    setReportDate(new Date().toISOString().slice(0, 10));
     setAdminActivities(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
     setEvidence([]);
     setEditing(null);
@@ -674,7 +826,7 @@ export default function DailyReportsPage() {
       const old = r.contractors?.find(c => c.name === 'HL-GISAICO');
       if (old?.breakdown) hlData.personnel = { mecanicos: old.breakdown.mecanicos ?? 0, soldadores: old.breakdown.soldadores ?? 0, auxiliares: old.breakdown.auxiliares ?? 0, armadores: old.breakdown.armadores ?? 0, inspectoresHSE: 0 };
       if (old?.equipment) hlData.equipment = { grua: old.equipment.grua ?? 0, generador: old.equipment.generador ?? 0, andamios: old.equipment.andamios ?? 0, camionGrua: old.equipment.camionGrua ?? 0, torreGrua: old.equipment.torreGrua ?? 0, equipoEspecial: old.equipment.equipoEspecial ?? '' };
-      if (old?.lostHours) hlData.lostHours = { malClima: old.lostHours.malClima ?? 0, parosHSE: old.lostHours.parosHSE ?? 0, fallasTecnicas: old.lostHours.fallasTecnicas ?? 0 };
+      if (old?.lostHours) hlData.lostHours = { malClima: old.lostHours.malClima ?? 0, parosHSE: old.lostHours.parosHSE ?? 0, fallasTecnicas: old.lostHours.fallasTecnicas ?? 0, charlaInfo: old.lostHours.charlaInfo ?? 0 };
 
       // Try to migrate TECNITANQUES and CYC from old contractors[]
       const mapOld = (name: string): PerContractorData => {
@@ -683,7 +835,7 @@ export default function DailyReportsPage() {
         if (!oc) return d;
         if (oc.breakdown) d.personnel = { mecanicos: oc.breakdown.mecanicos ?? 0, soldadores: oc.breakdown.soldadores ?? 0, auxiliares: oc.breakdown.auxiliares ?? 0, armadores: oc.breakdown.armadores ?? 0, inspectoresHSE: 0 };
         if (oc.equipment) d.equipment = { grua: oc.equipment.grua ?? 0, generador: oc.equipment.generador ?? 0, andamios: oc.equipment.andamios ?? 0, camionGrua: oc.equipment.camionGrua ?? 0, torreGrua: oc.equipment.torreGrua ?? 0, equipoEspecial: oc.equipment.equipoEspecial ?? '' };
-        if (oc.lostHours) d.lostHours = { malClima: oc.lostHours.malClima ?? 0, parosHSE: oc.lostHours.parosHSE ?? 0, fallasTecnicas: oc.lostHours.fallasTecnicas ?? 0 };
+        if (oc.lostHours) d.lostHours = { malClima: oc.lostHours.malClima ?? 0, parosHSE: oc.lostHours.parosHSE ?? 0, fallasTecnicas: oc.lostHours.fallasTecnicas ?? 0, charlaInfo: oc.lostHours.charlaInfo ?? 0 };
         return d;
       };
 
@@ -888,6 +1040,18 @@ export default function DailyReportsPage() {
                 {/* ── TAB: META (activities + weather) ── */}
                 {tab === 'meta' && (
                   <div className="space-y-4">
+                    {/* Fecha del reporte */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                        <Calendar className="w-3 h-3" /> Fecha del Reporte
+                      </Label>
+                      <Input
+                        type="date"
+                        value={reportDate}
+                        onChange={e => setReportDate(e.target.value)}
+                        className="bg-primary/5 border-primary/10 text-xs font-mono w-48"
+                      />
+                    </div>
                     {/* Clima — global */}
                     <div className="space-y-1.5">
                       <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest">Condición Climática — Global</Label>
@@ -1447,12 +1611,32 @@ export default function DailyReportsPage() {
                 {/* ── TAB: EVIDENCIA (global) ── */}
                 {tab === 'evidencia' && (
                   <div className="space-y-3">
-                    <div className="border-2 border-dashed border-primary/20 bg-primary/[0.02] rounded-lg p-6 text-center hover:bg-primary/5 hover:border-cyan-500/30 transition-all cursor-pointer group"
-                      onClick={() => fileRef.current?.click()}>
-                      <input type="file" multiple accept="image/*,.pdf" ref={fileRef} className="hidden" onChange={handleUpload} />
-                      <Camera className="w-7 h-7 text-primary/30 mx-auto mb-2 group-hover:text-cyan-400 transition-colors" />
-                      <p className="text-[10px] font-mono text-primary/40 uppercase tracking-wider">Añadir Fotos / PDFs</p>
-                      <p className="text-[9px] font-mono text-primary/25 mt-1">{'< 200KB → Base64 | Grande / PDF → Firebase Storage'}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="border-2 border-dashed border-primary/20 bg-primary/[0.02] rounded-lg p-6 text-center hover:bg-primary/5 hover:border-cyan-500/30 transition-all cursor-pointer group flex flex-col justify-center h-full"
+                        onClick={() => fileRef.current?.click()}>
+                        <input type="file" multiple accept="image/*,.pdf" ref={fileRef} className="hidden" onChange={handleUpload} />
+                        <Camera className="w-7 h-7 text-primary/30 mx-auto mb-2 group-hover:text-cyan-400 transition-colors" />
+                        <p className="text-[10px] font-mono text-primary/40 uppercase tracking-wider">Añadir Fotos / PDFs</p>
+                        <p className="text-[9px] font-mono text-primary/25 mt-1">Evidencia manual (Upload)</p>
+                      </div>
+
+                      <div className="border-2 border-dashed border-amber-500/30 bg-amber-500/5 rounded-lg p-6 text-center hover:bg-amber-500/10 hover:border-amber-400/50 transition-all cursor-pointer group flex flex-col justify-center h-full relative"
+                        onClick={() => !isExtractingAI && aiFileRef.current?.click()}>
+                        <input type="file" accept="image/*,.pdf" ref={aiFileRef} className="hidden" onChange={handleAIExtract} disabled={isExtractingAI} />
+                        {isExtractingAI ? (
+                          <div className="flex flex-col items-center justify-center">
+                            <Loader2 className="w-7 h-7 text-amber-500 mx-auto mb-2 animate-spin" />
+                            <p className="text-[10px] font-mono text-amber-500 uppercase tracking-wider font-bold">Analizando PDF...</p>
+                          </div>
+                        ) : (
+                          <>
+                            <Sparkles className="w-7 h-7 text-amber-500/60 mx-auto mb-2 group-hover:text-amber-400 transition-colors" />
+                            <p className="text-[10px] font-mono text-amber-500/80 uppercase tracking-wider font-bold">Escanear Reporte (IA)</p>
+                            <p className="text-[9px] font-mono text-amber-500/50 mt-1">Llena el form con IA automáticamente</p>
+                          </>
+                        )}
+                        <span className="absolute top-1 right-1 text-[8px] bg-amber-500 text-black font-bold px-1.5 py-0.5 rounded-full uppercase">Beta</span>
+                      </div>
                     </div>
                     {Object.entries(progress).map(([k, pct]) => (
                       <div key={k} className="space-y-1">

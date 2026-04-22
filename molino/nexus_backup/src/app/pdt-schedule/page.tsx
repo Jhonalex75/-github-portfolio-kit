@@ -18,14 +18,23 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   parsePdtExcel,
   batchUploadPdtActivities,
   batchMergePdtActualDates,
   isPdtActivityTitled,
   type PdtActivity,
 } from "@/lib/pdt-parser";
+import { EQUIPMENT_CATALOG, filterByEquipment, type EquipmentKey } from "@/lib/pdt-dashboard-utils";
+import { PdtDashboardModal } from "@/components/pdt/PdtDashboardModal";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Loader2, UploadCloud, Search, CalendarDays, Maximize, Minimize, GitCompareArrows } from "lucide-react";
+import { Loader2, UploadCloud, Search, CalendarDays, Maximize, Minimize, GitCompareArrows, AlertTriangle, Filter, BarChart2 } from "lucide-react";
 
 const ROOT_UIDS = ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"]; // Demo root IDs
 
@@ -45,6 +54,50 @@ function formatPdtDate(iso: string): string {
   }
 }
 
+type DelayLevel = 'on-time' | 'mild' | 'moderate' | 'critical' | 'severe';
+type DelayFilter = 'all' | DelayLevel;
+
+interface DelayInfo {
+  days:  number;
+  level: DelayLevel;
+  label: string;
+  barClass:    string;
+  fillClass:   string;
+  textClass:   string;
+  badgeClass:  string;
+}
+
+function getDelayInfo(activity: PdtRow, showActual: boolean): DelayInfo {
+  const today = Date.now();
+  const baseEnd = new Date(activity.endDate).getTime();
+
+  let delayMs = 0;
+  if (showActual && activity.actualEndDate) {
+    delayMs = new Date(activity.actualEndDate).getTime() - baseEnd;
+  } else if (baseEnd < today && activity.progress < 100) {
+    delayMs = today - baseEnd;
+  }
+
+  const days = Math.max(0, Math.ceil(delayMs / (1000 * 60 * 60 * 24)));
+
+  let level: DelayLevel;
+  if (days === 0)       level = 'on-time';
+  else if (days <= 7)   level = 'mild';
+  else if (days <= 15)  level = 'moderate';
+  else if (days <= 30)  level = 'critical';
+  else                  level = 'severe';
+
+  const MAP: Record<DelayLevel, Omit<DelayInfo, 'days' | 'level'>> = {
+    'on-time':  { label: 'A tiempo',       barClass: 'bg-emerald-500/20 border-emerald-500/50 shadow-[0_0_8px_rgba(16,185,129,0.3)]',  fillClass: 'bg-emerald-400/90',  textClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' },
+    'mild':     { label: 'Atraso leve',    barClass: 'bg-yellow-500/20 border-yellow-400/50 shadow-[0_0_8px_rgba(234,179,8,0.3)]',     fillClass: 'bg-yellow-400/90',   textClass: 'text-yellow-400',  badgeClass: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40' },
+    'moderate': { label: 'Atraso moderado',barClass: 'bg-orange-500/20 border-orange-400/50 shadow-[0_0_8px_rgba(249,115,22,0.35)]',   fillClass: 'bg-orange-400/90',   textClass: 'text-orange-400',  badgeClass: 'bg-orange-500/20 text-orange-400 border-orange-500/40' },
+    'critical': { label: 'Atraso crítico', barClass: 'bg-red-500/20 border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.5)]',          fillClass: 'bg-red-500/90',      textClass: 'text-red-400',     badgeClass: 'bg-red-500/20 text-red-400 border-red-500/40' },
+    'severe':   { label: 'Atraso severo',  barClass: 'bg-rose-900/40 border-rose-700/60 shadow-[0_0_12px_rgba(190,18,60,0.6)]',        fillClass: 'bg-rose-700/90',     textClass: 'text-rose-400',    badgeClass: 'bg-rose-900/30 text-rose-400 border-rose-700/40' },
+  };
+
+  return { days, level, ...MAP[level] };
+}
+
 export default function PdtSchedulePage() {
   const router = useRouter();
   const firestore = useFirestore();
@@ -61,6 +114,9 @@ export default function PdtSchedulePage() {
   const [zoomWidth, setZoomWidth] = useState(25); // Pixels per day
   const [searchTerm, setSearchTerm] = useState("");
   const [showActualComparison, setShowActualComparison] = useState(false);
+  const [delayFilter, setDelayFilter] = useState<DelayFilter>('all');
+  const [equipmentFilter, setEquipmentFilter] = useState<EquipmentKey>('ALL');
+  const [showDashboard, setShowDashboard] = useState(false);
 
   const activeProjectId = "default-nexus-project";
 
@@ -90,11 +146,23 @@ export default function PdtSchedulePage() {
     ).length;
   }, [rawActivities]);
 
-  // Filtro: sin título oculto + búsqueda + orden por fecha línea base
+  // Estadísticas de atraso
+  const delayStats = useMemo(() => {
+    if (!rawActivities) return { 'on-time': 0, mild: 0, moderate: 0, critical: 0, severe: 0, total: 0 };
+    const titled = rawActivities.filter(isPdtActivityTitled);
+    const counts = { 'on-time': 0, mild: 0, moderate: 0, critical: 0, severe: 0, total: titled.length };
+    titled.forEach(a => { counts[getDelayInfo(a as PdtRow, showActualComparison).level]++; });
+    return counts;
+  }, [rawActivities, showActualComparison]);
+
+  // Filtro: sin título oculto + búsqueda + filtro atraso + filtro equipo + orden por fecha línea base
   const activities = useMemo(() => {
     if (!rawActivities) return [];
     let act = rawActivities.filter((a) => isPdtActivityTitled(a));
     act.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    if (equipmentFilter !== 'ALL') {
+      act = filterByEquipment(act, equipmentFilter) as PdtRow[];
+    }
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
       act = act.filter(
@@ -102,8 +170,19 @@ export default function PdtSchedulePage() {
           a.activityName.toLowerCase().includes(lower) || a.activityId.toLowerCase().includes(lower)
       );
     }
+    if (delayFilter !== 'all') {
+      act = act.filter(a => getDelayInfo(a as PdtRow, showActualComparison).level === delayFilter);
+    }
     return act;
-  }, [rawActivities, searchTerm]);
+  }, [rawActivities, searchTerm, delayFilter, showActualComparison, equipmentFilter]);
+
+  // Todas las actividades sin filtro de search/delay (para pasar al dashboard con contexto completo)
+  const allTitledActivities = useMemo(() => {
+    if (!rawActivities) return [];
+    let act = rawActivities.filter((a) => isPdtActivityTitled(a));
+    if (equipmentFilter !== 'ALL') act = filterByEquipment(act, equipmentFilter) as PdtRow[];
+    return act;
+  }, [rawActivities, equipmentFilter]);
 
   // Eje temporal: línea base; si compara, incluye fechas reales de obra
   const { minDateMs, maxDateMs, totalDays } = useMemo(() => {
@@ -214,7 +293,7 @@ export default function PdtSchedulePage() {
           });
           toast({
             title: "PDT OBRA REAL ACTUALIZADO",
-            description: `${parsed.length} filas procesadas. Active “Comparar obra real” en el Gantt.`,
+            description: `${parsed.length} filas procesadas. Active "Comparar obra real" en el Gantt.`,
           });
           setShowActualComparison(true);
         } catch (err) {
@@ -269,19 +348,59 @@ export default function PdtSchedulePage() {
               <p className="text-muted-foreground/80 font-mono-tech text-[9px] uppercase tracking-widest mt-1">
                 Línea base aprobada (Aris) · {activitiesWithActualCount} actividades con PDT obra real importado
               </p>
-              <div className="flex items-center gap-4 mt-2 text-[9px] font-mono-tech uppercase tracking-tighter text-primary/70">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block h-2 w-6 rounded-sm bg-cyan-500/50 border border-cyan-400/60" />
-                  Línea base
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block h-2 w-6 rounded-sm bg-amber-500/70 border border-amber-400/80" />
-                  Obra real
-                </span>
+              {/* Leyenda semáforo + estadísticas */}
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                {([
+                  { level: 'on-time',  label: 'A tiempo',    color: 'bg-emerald-500/50 border-emerald-400/60', text: 'text-emerald-400', count: delayStats['on-time'] },
+                  { level: 'mild',     label: '1–7d',         color: 'bg-yellow-500/50 border-yellow-400/60',  text: 'text-yellow-400',  count: delayStats.mild },
+                  { level: 'moderate', label: '8–15d',        color: 'bg-orange-500/50 border-orange-400/60',  text: 'text-orange-400',  count: delayStats.moderate },
+                  { level: 'critical', label: '16–30d',       color: 'bg-red-500/50 border-red-500/60',        text: 'text-red-400',     count: delayStats.critical },
+                  { level: 'severe',   label: '+30d',         color: 'bg-rose-900/60 border-rose-700/60',      text: 'text-rose-400',    count: delayStats.severe },
+                ] as const).map(({ level, label, color, text, count }) => (
+                  <button
+                    key={level}
+                    onClick={() => setDelayFilter(f => f === level ? 'all' : level)}
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded border text-[9px] font-mono-tech uppercase tracking-wider transition-all ${delayFilter === level ? 'ring-1 ring-white/30 brightness-125' : 'opacity-70 hover:opacity-100'} ${color} ${text}`}
+                  >
+                    <span className={`inline-block h-2 w-4 rounded-sm border ${color}`} />
+                    {label}
+                    <span className="font-bold">{count}</span>
+                  </button>
+                ))}
+                {delayFilter !== 'all' && (
+                  <button onClick={() => setDelayFilter('all')} className="text-[9px] font-mono-tech text-primary/50 hover:text-primary underline">
+                    Ver todo
+                  </button>
+                )}
               </div>
             </div>
             
             <div className="flex flex-wrap items-center gap-3">
+              {/* Dashboard button */}
+              <Button
+                onClick={() => setShowDashboard(true)}
+                disabled={!rawActivities || rawActivities.length === 0}
+                className="bg-primary/10 text-primary border border-primary/40 hover:bg-primary hover:text-[#0A0E14] font-display font-black text-[10px] uppercase tracking-widest"
+              >
+                <BarChart2 className="w-4 h-4 mr-2" /> DASHBOARD
+              </Button>
+
+              {/* Equipment filter */}
+              <Select value={equipmentFilter} onValueChange={(v) => setEquipmentFilter(v as EquipmentKey)}>
+                <SelectTrigger className="h-10 w-[160px] bg-primary/5 border-primary/10 text-[10px] font-mono-tech uppercase tracking-wide text-primary/80">
+                  <SelectValue placeholder="Equipo..." />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0f141c] border-primary/20 text-[10px] font-mono-tech">
+                  {EQUIPMENT_CATALOG.map(eq => (
+                    <SelectItem key={eq.key} value={eq.key}
+                      className="text-[10px] font-mono-tech uppercase tracking-wide cursor-pointer focus:bg-primary/10"
+                      style={{ color: eq.color }}>
+                      {eq.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <div className="flex items-center gap-2 rounded border border-primary/15 bg-primary/5 px-3 py-1.5">
                 <GitCompareArrows className="h-4 w-4 text-amber-400 shrink-0" />
                 <Label htmlFor="pdt-compare" className="text-[10px] font-mono-tech uppercase tracking-wide text-primary/90 cursor-pointer whitespace-nowrap">
@@ -295,7 +414,7 @@ export default function PdtSchedulePage() {
                     if (v && activitiesWithActualCount === 0) {
                       toast({
                         title: "Sin fechas de obra real",
-                        description: "Importe un Excel con “PDT obra real” (mismos Activity ID). No borra la línea base.",
+                        description: "Importe un Excel con 'PDT obra real' (mismos Activity ID). No borra la linea base.",
                       });
                     }
                   }}
@@ -304,8 +423,8 @@ export default function PdtSchedulePage() {
 
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary/40" />
-                <Input 
-                  placeholder="FILTRAR NODOS P6..." 
+                <Input
+                  placeholder="FILTRAR NODOS P6..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="bg-primary/5 border-primary/10 pl-10 h-10 w-[200px] text-xs font-mono-tech transition-all focus:w-[250px]"
@@ -389,10 +508,11 @@ export default function PdtSchedulePage() {
                   className="sticky top-0 z-30 flex h-8 bg-[#0A0E14]/90 backdrop-blur border-b border-primary/20"
                   style={{ width: `${350 + (totalDays * zoomWidth)}px` }}
                 >
-                  <div className="w-[350px] shrink-0 border-r border-primary/20 flex items-center px-4 gap-4 sticky left-0 bg-[#0A0E14]/90 backdrop-blur z-40 shadow-[5px_0_15px_-5px_rgba(0,0,0,0.5)]">
+                  <div className="w-[380px] shrink-0 border-r border-primary/20 flex items-center px-4 gap-3 sticky left-0 bg-[#0A0E14]/90 backdrop-blur z-40 shadow-[5px_0_15px_-5px_rgba(0,0,0,0.5)]">
                     <div className="w-20 font-display text-[10px] font-black text-primary uppercase tracking-widest">WBS ID</div>
                     <div className="flex-1 font-display text-[10px] font-black text-primary uppercase tracking-widest">Descripción Táctica</div>
-                    <div className="w-10 font-display text-[10px] font-black text-primary text-right uppercase tracking-widest">AV%</div>
+                    <div className="w-8 font-display text-[10px] font-black text-primary text-right uppercase tracking-widest">AV%</div>
+                    <div className="w-12 font-display text-[10px] font-black text-amber-400/70 text-right uppercase tracking-widest">Δ días</div>
                   </div>
                   {/* Timeline Days Ticks */}
                   <div className="flex-1 relative h-full">
@@ -442,14 +562,9 @@ export default function PdtSchedulePage() {
 
                     const isCritical = activity.totalFloat <= 0;
                     const progressPx = widthPx * (activity.progress / 100);
-
-                    // Color de la Barra según Ruta Crítica
-                    const barBaseClass = isCritical 
-                      ? 'bg-red-500/20 shadow-[0_0_10px_rgba(239,68,68,0.5)] border-red-500/50' 
-                      : 'bg-cyan-500/20 shadow-[0_0_10px_rgba(0,229,255,0.2)] border-cyan-500/50';
-                    const barFillClass = isCritical 
-                      ? 'bg-red-500/90' 
-                      : 'bg-emerald-400/90';
+                    const delay = getDelayInfo(activity, showActualComparison);
+                    const barBaseClass = delay.barClass;
+                    const barFillClass = delay.fillClass;
 
                     return (
                       <div
@@ -461,7 +576,7 @@ export default function PdtSchedulePage() {
                         }}
                       >
                         {/* Data Panel Lado Izquierdo (Fijo) */}
-                        <div className="w-[350px] shrink-0 border-r border-primary/20 flex items-center px-4 gap-4 bg-[#0B1018] z-20 sticky left-0 shadow-[5px_0_15px_-5px_rgba(0,0,0,0.5)] transition-colors group-hover:bg-[#121A26]">
+                        <div className="w-[380px] shrink-0 border-r border-primary/20 flex items-center px-4 gap-3 bg-[#0B1018] z-20 sticky left-0 shadow-[5px_0_15px_-5px_rgba(0,0,0,0.5)] transition-colors group-hover:bg-[#121A26]">
                           <div className={`w-20 font-mono-tech text-[10px] truncate ${isCritical ? 'text-red-400 font-bold' : 'text-primary/70'}`} title={activity.activityId}>
                             {activity.activityId}
                           </div>
@@ -471,8 +586,18 @@ export default function PdtSchedulePage() {
                           >
                             {activity.activityName}
                           </div>
-                          <div className="w-10 font-mono-tech text-[9px] text-right font-bold text-amber-400">
+                          <div className="w-8 font-mono-tech text-[9px] text-right font-bold text-amber-400">
                             {activity.progress}%
+                          </div>
+                          <div className={`w-12 text-right font-mono-tech text-[9px] font-bold ${delay.textClass}`}>
+                            {delay.days > 0 ? (
+                              <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded border text-[8px] ${delay.badgeClass}`}>
+                                {delay.level === 'severe' && <AlertTriangle className="w-2 h-2" />}
+                                +{delay.days}d
+                              </span>
+                            ) : (
+                              <span className="text-emerald-500/50">—</span>
+                            )}
                           </div>
                         </div>
 
@@ -542,6 +667,11 @@ export default function PdtSchedulePage() {
                                         <p className="text-amber-200/60">Duración: {Math.round(actualDurationDays)} d</p>
                                       </>
                                     ) : null}
+                                    {delay.days > 0 && (
+                                      <p className={`pt-2 text-[10px] font-bold border-t border-primary/10 mt-1 ${delay.textClass}`}>
+                                        ⚠ {delay.label}: +{delay.days} días de atraso
+                                      </p>
+                                    )}
                                   </div>
                                 </TooltipContent>
                               </Tooltip>
@@ -558,6 +688,13 @@ export default function PdtSchedulePage() {
         </main>
       </div>
     </div>
+      {/* PDT Dashboard Modal */}
+      <PdtDashboardModal
+        open={showDashboard}
+        onClose={() => setShowDashboard(false)}
+        activities={allTitledActivities}
+        showActual={showActualComparison}
+      />
     </TooltipProvider>
   );
 }

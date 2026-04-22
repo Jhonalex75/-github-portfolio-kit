@@ -45,6 +45,21 @@ service cloud.firestore {
                     );
     }
 
+    // ===== PARTNER PDF SOURCES — audit trail of imported partner reports =====
+    match /projects/default-nexus-project/pdf_sources/{sourceId} {
+      allow read:   if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+                       request.auth.uid == resource.data.uploadedBy ||
+                       request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
+                       isAdmin(request.auth.uid)
+                    );
+      allow delete: if isAuthenticated() && (
+                       request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
+                       isAdmin(request.auth.uid)
+                    );
+    }
+
     // ===== USERS COLLECTION =====
     match /users/{userId} {
       // Users can read their own profile

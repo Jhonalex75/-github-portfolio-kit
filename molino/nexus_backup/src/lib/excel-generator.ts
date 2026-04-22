@@ -59,9 +59,17 @@ export interface DailyReportData {
     checklist:      { workAtHeights: boolean; hotWork: boolean; confinedSpace: boolean; scaffolding: boolean };
     safetyInfo:     { comments: string; incidents: number; nearMisses: number; eppObservations: string; lessonsLearned: string };
     equipment:      { grua: number; generador: number; andamios: number; camionGrua: number; torreGrua: number; equipoEspecial: string };
-    lostHours:      { malClima: number; parosHSE: number; fallasTecnicas: number };
+    lostHours:      { malClima: number; parosHSE: number; fallasTecnicas: number; charlaInfo?: number };
     weldingMetrics?: Array<{ estructura: string; metrajeMl: number; soldadores: number }>;
   }>;
+  pdfSource?: {
+    storageUrl:    string;
+    storagePath:   string;
+    uploadedBy:    string;
+    uploadedByName: string;
+    uploadedAt:    string;
+    aiConfidence?: number;
+  };
 }
 
 // ─── SGS Color Palette ────────────────────────────────────────────────────────
@@ -293,10 +301,16 @@ async function buildSheetReporteDiario(wb: ExcelJS.Workbook, report: DailyReport
     alertRow.height = 20;
   }
 
-  // ── Evidence list ──
+  // ── Evidence list with category breakdown ──
   if (report.evidence && report.evidence.length > 0) {
-    sectionHeader(ws, `BÓVEDA DE EVIDENCIA FOTOGRÁFICA (${report.evidence.length} adjunto(s))`, C.cyan);
-    ws.addRow(['ARCHIVO / NOMBRE', 'ORIGEN / HIPERVÍNCULO']);
+    const evCats = ['Avance', 'Seguridad', 'Equipos', 'Incidentes', 'General'] as const;
+    const catCounts = evCats.map(cat => ({
+      cat,
+      n: report.evidence.filter(e => ((e as { category?: string }).category ?? 'General') === cat).length,
+    })).filter(x => x.n > 0);
+    const catSummary = catCounts.map(x => `${x.cat}: ${x.n}`).join(' · ');
+    sectionHeader(ws, `BÓVEDA DE EVIDENCIA FOTOGRÁFICA (${report.evidence.length} adjunto(s)${catSummary ? ' — ' + catSummary : ''})`, C.cyan);
+    ws.addRow(['ARCHIVO / NOMBRE', 'CATEGORÍA', 'ORIGEN / HIPERVÍNCULO']);
     const evHead = ws.getRow(ws.rowCount);
     Object.assign(evHead.getCell(1), hdr(C.cyan)); Object.assign(evHead.getCell(2), hdr(C.cyan));
     evHead.height = 18;
@@ -323,23 +337,26 @@ async function buildSheetReporteDiario(wb: ExcelJS.Workbook, report: DailyReport
               if (m) extension = (m[1] === 'jpg' ? 'jpeg' : m[1]) as 'jpeg' | 'png' | 'gif';
             }
           }
+          const evCat = (ev as { category?: string }).category ?? 'General';
           const imageId = wb.addImage({ base64: base64Data, extension });
-          ws.addRow([`📷  ${ev.name}`, ev.uploadMethod === 'storage' ? '☁️  Firebase Storage — URL pública' : '💾  Base64 local']);
+          ws.addRow([`📷  ${ev.name}`, evCat, ev.uploadMethod === 'storage' ? '☁️  Firebase Storage — URL pública' : '💾  Base64 local']);
           ws.getRow(ws.rowCount).height = 18;
           const imgRow = ws.rowCount;
           ws.addRow([]);  ws.getRow(ws.rowCount).height = 170;
           ws.addImage(imageId, { tl: { col: 1, row: imgRow }, ext: { width: 340, height: 214 } });
         } catch {
-          ws.addRow([`📷  ${ev.name}`, ev.urlOrBase64.startsWith('http') ? ev.urlOrBase64 : '(Base64)']);
+          const evCat = (ev as { category?: string }).category ?? 'General';
+          ws.addRow([`📷  ${ev.name}`, evCat, ev.urlOrBase64.startsWith('http') ? ev.urlOrBase64 : '(Base64)']);
           const r = ws.getRow(ws.rowCount);
-          if (ev.urlOrBase64.startsWith('http')) r.getCell(2).value = { text: '↗ Abrir fotografía', hyperlink: ev.urlOrBase64 } as ExcelJS.CellHyperlinkValue;
+          if (ev.urlOrBase64.startsWith('http')) r.getCell(3).value = { text: '↗ Abrir fotografía', hyperlink: ev.urlOrBase64 } as ExcelJS.CellHyperlinkValue;
           r.height = 18;
         }
       } else {
-        ws.addRow([`📄  ${ev.name}`, '']);
+        const evCat = (ev as { category?: string }).category ?? 'General';
+        ws.addRow([`📄  ${ev.name}`, evCat, '']);
         const r = ws.getRow(ws.rowCount);
-        if (ev.urlOrBase64.startsWith('http')) r.getCell(2).value = { text: '↗ Descargar PDF', hyperlink: ev.urlOrBase64 } as ExcelJS.CellHyperlinkValue;
-        else r.getCell(2).value = 'PDF almacenado en sistema';
+        if (ev.urlOrBase64.startsWith('http')) r.getCell(3).value = { text: '↗ Descargar PDF', hyperlink: ev.urlOrBase64 } as ExcelJS.CellHyperlinkValue;
+        else r.getCell(3).value = 'PDF almacenado en sistema';
         r.height = 18;
       }
     }
@@ -794,6 +811,12 @@ function buildSheetSeguridad(wb: ExcelJS.Workbook, report: DailyReportData) {
     ['Folio Referenciado',      report.metadata.consecutiveId],
     ['Documento Generado',      new Date().toLocaleString('es-CO', { dateStyle: 'full', timeStyle: 'long' })],
     ['Sistema Emisor',          SYSTEM_VER],
+    ...(report.pdfSource ? [
+      ['PDF Partner — Origen',       report.pdfSource.uploadedByName] as [string, string],
+      ['PDF Partner — Fecha',        new Date(report.pdfSource.uploadedAt).toLocaleString('es-CO')] as [string, string],
+      ['PDF Partner — Storage',      report.pdfSource.storagePath] as [string, string],
+      ['PDF Partner — IA Confianza', `${Math.round((report.pdfSource.aiConfidence ?? 0) * 100)}%`] as [string, string],
+    ] : []),
   ];
   sigRows.forEach(([campo, valor]) => {
     ws.addRow([campo, valor]);
@@ -1055,13 +1078,17 @@ function buildSheetNarrativasContratistas(wb: ExcelJS.Workbook, report: DailyRep
       ws.getRow(llRn).height = 22;
     }
 
-    // ── HORAS PERDIDAS ──
-    const totalLH = lh.malClima + lh.parosHSE + lh.fallasTecnicas;
-    if (totalLH > 0) {
-      subHdr('HORAS PERDIDAS DEL TURNO', 'A', 'F', 'FFAD1457');
-      addSafetyRow('\uD83C\uDF27\uFE0F Mal Clima (h)', lh.malClima.toFixed(1), '\uD83D\uDEA8 Paros HSE (h)', lh.parosHSE.toFixed(1));
-      addSafetyRow('\uD83D\uDD27 Falla T\u00E9c. (h)', lh.fallasTecnicas.toFixed(1), '\u23F1 TOTAL PERDIDAS', totalLH.toFixed(1), 'FFFCE4EC');
-    }
+    // ── HORAS PERDIDAS + EFICIENCIA DE TURNO ──
+    const charlaInfo = (lh as { charlaInfo?: number }).charlaInfo ?? 0;
+    const totalLH = lh.malClima + lh.parosHSE + lh.fallasTecnicas + charlaInfo;
+    const efectivas = Math.max(0, 10 - totalLH);
+    const eficiencia = Math.round((efectivas / 10) * 100);
+    subHdr('CONTROL DE TURNO (10 horas base)', 'A', 'F', 'FFAD1457');
+    addSafetyRow('⏱ Turno Base (h)', '10.0', '⚡ Horas Efectivas', efectivas.toFixed(1));
+    addSafetyRow('🌧️ Mal Clima (h)', lh.malClima.toFixed(1), '🚨 Paros HSE (h)', lh.parosHSE.toFixed(1));
+    addSafetyRow('🔧 Falla Téc. (h)', lh.fallasTecnicas.toFixed(1), '📋 Charla/Info (h)', charlaInfo.toFixed(1));
+    addSafetyRow('⏱ Total Descuentos', totalLH.toFixed(1), '📊 Eficiencia Turno', `${eficiencia}%`,
+      eficiencia >= 80 ? 'FFE8F5E9' : eficiencia >= 60 ? 'FFFFF8E1' : 'FFFCE4EC');
 
     // ── METRAJES DE SOLDADURA (solo TECNITANQUES y CYC) ──
     if (cfg.weld) {

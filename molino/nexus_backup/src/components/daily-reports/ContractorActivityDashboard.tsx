@@ -5,9 +5,12 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Legend,
   Line,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -29,10 +32,13 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
+  activityFrequency,
   distinctContractors,
   exportContractorDashboardExcel,
   flattenContractorReportRows,
   monthlyStatsForContractor,
+  specialtyByFolio,
+  specialtyShareForContractor,
   summarizeAllContractors,
   topContractorsByVolume,
   type ContractorDashboardReportLike,
@@ -44,9 +50,16 @@ import {
   Loader2,
   Building2,
   Info,
+  Users,
+  BarChart2,
+  PieChartIcon,
+  Activity,
 } from 'lucide-react';
 
 const ALL_KEY = '__ALL__';
+
+// Tipo auxiliar para tooltip tipado
+interface ActivityFreqTooltip { category: string; count: number; pct: number; color: string; icon: string; }
 
 interface ContractorActivityDashboardProps {
   reports: ContractorDashboardReportLike[];
@@ -91,6 +104,39 @@ export function ContractorActivityDashboard({
     if (selected === ALL_KEY) return null;
     return summaries.find((s) => s.contractor === selected) ?? null;
   }, [summaries, selected]);
+
+  // ── Nuevas agregaciones para gráficas avanzadas ──
+  const specialtyFolioData = useMemo(() => {
+    if (selected === ALL_KEY || !selected) return [];
+    return specialtyByFolio(reports, selected);
+  }, [reports, selected]);
+
+  const hasSpecialtyData = useMemo(
+    () => specialtyFolioData.some(f => f.mecanicos + f.soldadores + f.auxiliares + f.armadores + f.inspectoresHSE > 0),
+    [specialtyFolioData],
+  );
+
+  const specialtyShare = useMemo(() => {
+    if (selected === ALL_KEY || !selected) return [];
+    return specialtyShareForContractor(reports, selected);
+  }, [reports, selected]);
+
+  const actFreq = useMemo(() => {
+    if (selected === ALL_KEY || !selected) return [];
+    return activityFrequency(contractorRowsFiltered, selected, reports);
+  }, [contractorRowsFiltered, selected, reports]);
+
+  // Histograma: personal por folio (para contratista seleccionado)
+  const personnelHistData = useMemo(() => {
+    return contractorRowsFiltered
+      .slice()
+      .sort((a, b) => a.dateMs - b.dateMs)
+      .map(r => ({
+        label: r.consecutiveId,
+        personal: r.personnel,
+        date: r.dateIso ? new Date(r.dateIso).toLocaleDateString('es-CO', { day:'2-digit', month:'short' }) : '—',
+      }));
+  }, [contractorRowsFiltered]);
 
   const onExport = async (scope: 'view' | 'all') => {
     setExporting(true);
@@ -319,6 +365,193 @@ export function ContractorActivityDashboard({
                       </div>
                     )}
 
+                    {/* ── GRÁFICA 2: Histograma de personal por folio ── */}
+                    {personnelHistData.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-3.5 w-3.5 text-cyan-400" />
+                          <p className="font-mono text-[10px] uppercase tracking-widest text-cyan-400/80">
+                            Personal por folio — histograma
+                          </p>
+                        </div>
+                        <div className="h-[220px] w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={personnelHistData} margin={{ top:4, right:12, left:0, bottom:28 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(34,211,238,0.10)" vertical={false} />
+                              <XAxis
+                                dataKey="label"
+                                tick={{ fill:'rgba(148,163,184,0.8)', fontSize:9 }}
+                                interval={0}
+                                angle={-35}
+                                textAnchor="end"
+                                height={40}
+                              />
+                              <YAxis tick={{ fill:'rgba(148,163,184,0.7)', fontSize:9 }} allowDecimals={false} />
+                              <Tooltip
+                                contentStyle={{ backgroundColor:'#0f141c', border:'1px solid rgba(34,211,238,0.35)', borderRadius:8, fontSize:11 }}
+                                formatter={(v: number, _: string, props: { payload?: { date?: string } }) => [`${v} personas — ${props.payload?.date ?? ''}`, 'Personal']}
+                              />
+                              <Bar dataKey="personal" name="Personal" fill="#22d3ee" radius={[4,4,0,0]} maxBarSize={32}>
+                                {personnelHistData.map((entry, i) => (
+                                  <Cell key={i} fill={entry.personal >= 40 ? '#0097A7' : entry.personal >= 25 ? '#22d3ee' : '#67E8F9'} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── GRÁFICA 3: Desglose por especialidad (stacked) ── */}
+                    {hasSpecialtyData && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <BarChart2 className="h-3.5 w-3.5 text-amber-400" />
+                          <p className="font-mono text-[10px] uppercase tracking-widest text-amber-400/80">
+                            Desglose por especialidad — por folio (apilado)
+                          </p>
+                        </div>
+                        <div className="h-[260px] w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={specialtyFolioData} margin={{ top:4, right:12, left:0, bottom:36 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(251,191,36,0.08)" vertical={false} />
+                              <XAxis
+                                dataKey="label"
+                                tick={{ fill:'rgba(148,163,184,0.8)', fontSize:8 }}
+                                interval={0}
+                                angle={-35}
+                                textAnchor="end"
+                                height={44}
+                              />
+                              <YAxis tick={{ fill:'rgba(148,163,184,0.7)', fontSize:9 }} allowDecimals={false} />
+                              <Tooltip
+                                contentStyle={{ backgroundColor:'#0f141c', border:'1px solid rgba(251,191,36,0.3)', borderRadius:8, fontSize:11 }}
+                              />
+                              <Legend wrapperStyle={{ fontSize:10, paddingTop:4 }} />
+                              <Bar dataKey="mecanicos"      name="Mecánicos"   stackId="a" fill="#1565C0" maxBarSize={36} />
+                              <Bar dataKey="soldadores"     name="Soldadores"  stackId="a" fill="#D32F2F" maxBarSize={36} />
+                              <Bar dataKey="auxiliares"     name="Auxiliares"  stackId="a" fill="#00695C" maxBarSize={36} />
+                              <Bar dataKey="armadores"      name="Armadores"   stackId="a" fill="#FFA000" maxBarSize={36} />
+                              <Bar dataKey="inspectoresHSE" name="Insp. HSE"   stackId="a" fill="#6A1B9A" radius={[4,4,0,0]} maxBarSize={36} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── GRÁFICAS 4 + 5: Pie de especialidades + Frecuencia de actividades ── */}
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+
+                      {/* Pie distribución especialidades */}
+                      {specialtyShare.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <PieChartIcon className="h-3.5 w-3.5 text-violet-400" />
+                            <p className="font-mono text-[10px] uppercase tracking-widest text-violet-400/80">
+                              Distribución % de especialidades
+                            </p>
+                          </div>
+                          <div className="h-[240px] w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie
+                                  data={specialtyShare}
+                                  dataKey="value"
+                                  nameKey="name"
+                                  cx="50%"
+                                  cy="48%"
+                                  outerRadius={80}
+                                  innerRadius={36}
+                                  paddingAngle={2}
+                                  label={({ name, pct }) => `${name} ${pct}%`}
+                                  labelLine={{ stroke:'rgba(148,163,184,0.4)', strokeWidth:1 }}
+                                >
+                                  {specialtyShare.map((entry, i) => (
+                                    <Cell key={i} fill={entry.color} stroke="transparent" />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  contentStyle={{ backgroundColor:'#0f141c', border:'1px solid rgba(139,92,246,0.35)', borderRadius:8, fontSize:11 }}
+                                  formatter={(v: number, name: string) => {
+                                    const item = specialtyShare.find(s => s.name === name);
+                                    return [`${v} pers. (${item?.pct ?? 0}%)`, name];
+                                  }}
+                                />
+                                <Legend wrapperStyle={{ fontSize:10, paddingTop:4 }} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Frecuencia de actividades por categoría */}
+                      {actFreq.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Activity className="h-3.5 w-3.5 text-orange-400" />
+                            <p className="font-mono text-[10px] uppercase tracking-widest text-orange-400/80">
+                              Frecuencia de actividades — % participación
+                            </p>
+                          </div>
+                          <div className="h-[240px] w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart
+                                data={actFreq}
+                                layout="vertical"
+                                margin={{ top:4, right:48, left:4, bottom:4 }}
+                              >
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(251,146,60,0.10)" horizontal={false} />
+                                <XAxis
+                                  type="number"
+                                  domain={[0, 100]}
+                                  tick={{ fill:'rgba(148,163,184,0.7)', fontSize:9 }}
+                                  tickFormatter={v => `${v}%`}
+                                />
+                                <YAxis
+                                  type="category"
+                                  dataKey="category"
+                                  width={130}
+                                  tick={{ fill:'rgba(148,163,184,0.85)', fontSize:8 }}
+                                  tickFormatter={v => v.length > 18 ? v.slice(0,17)+'…' : v}
+                                />
+                                <Tooltip
+                                  contentStyle={{ backgroundColor:'#0f141c', border:'1px solid rgba(251,146,60,0.35)', borderRadius:8, fontSize:11 }}
+                                  formatter={(v: number, _: string, props: { payload?: ActivityFreqTooltip }) => [
+                                    `${props.payload?.count ?? 0} folio(s) — ${v}% de presencia`,
+                                    props.payload?.category ?? ''
+                                  ]}
+                                />
+                                <Bar dataKey="pct" name="% presencia" radius={[0,4,4,0]} maxBarSize={18}>
+                                  {actFreq.map((entry, i) => (
+                                    <Cell key={i} fill={entry.color} />
+                                  ))}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+
+                          {/* Mini-leyenda de porcentajes */}
+                          <div className="grid grid-cols-2 gap-1 pt-1">
+                            {actFreq.slice(0, 6).map((a, i) => (
+                              <div key={i} className="flex items-center gap-1.5">
+                                <span className="text-[11px]">{a.icon}</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-mono text-[8px] text-primary/60 truncate">{a.category}</span>
+                                    <span className="font-mono text-[9px] font-bold ml-1" style={{ color: a.color }}>{a.pct}%</span>
+                                  </div>
+                                  <div className="mt-0.5 h-1 rounded-full bg-primary/10 overflow-hidden">
+                                    <div className="h-full rounded-full" style={{ width:`${a.pct}%`, backgroundColor: a.color }} />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Lista de folios ── */}
                     <div className="space-y-2">
                       <p className="font-mono text-[10px] uppercase tracking-widest text-violet-400/80">
                         Últimos folios — actividades

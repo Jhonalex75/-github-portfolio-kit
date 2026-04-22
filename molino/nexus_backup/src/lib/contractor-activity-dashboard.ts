@@ -5,7 +5,14 @@ export interface ContractorDashboardReportLike {
   id: string;
   metadata?: { date?: string; frente?: string; consecutiveId?: string; status?: string };
   activities?: string;
-  contractors?: { name?: string; personnel?: number }[];
+  contractors?: { name?: string; personnel?: number; breakdown?: { mecanicos?: number; soldadores?: number; auxiliares?: number; armadores?: number } }[];
+  /** New per-contractor sections format */
+  contractor_sections?: Record<string, {
+    activities?: string;
+    personnel?: { mecanicos?: number; soldadores?: number; auxiliares?: number; armadores?: number; inspectoresHSE?: number };
+    equipment?:  { grua?: number; generador?: number; andamios?: number; camionGrua?: number; torreGrua?: number };
+    lostHours?:  { malClima?: number; parosHSE?: number; fallasTecnicas?: number };
+  }>;
 }
 
 export interface ContractorReportRow {
@@ -160,6 +167,136 @@ export function summarizeAllContractors(rows: ContractorReportRow[]): Contractor
     });
   }
   return out.sort((a, b) => a.contractor.localeCompare(b.contractor, 'es', { sensitivity: 'base' }));
+}
+
+// ─── Especialidades por folio ─────────────────────────────────────────────────
+export interface SpecialtyByFolio {
+  label: string;        // "Folio #42 · 10 Abr"
+  mecanicos:      number;
+  soldadores:     number;
+  auxiliares:     number;
+  armadores:      number;
+  inspectoresHSE: number;
+  total:          number;
+}
+
+export function specialtyByFolio(
+  reports: ContractorDashboardReportLike[],
+  contractor: string,
+): SpecialtyByFolio[] {
+  const out: SpecialtyByFolio[] = [];
+  const sorted = [...reports].sort((a, b) => {
+    const da = new Date(a.metadata?.date ?? '').getTime();
+    const db = new Date(b.metadata?.date ?? '').getTime();
+    return da - db;
+  });
+  for (const r of sorted) {
+    const sec = r.contractor_sections?.[contractor];
+    const leg = r.contractors?.find(c => (c.name ?? '').trim() === contractor);
+    if (!sec && !leg) continue;
+
+    const date = r.metadata?.date ?? '';
+    const d = date ? new Date(date) : null;
+    const shortDate = d && !Number.isNaN(d.getTime())
+      ? d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })
+      : '—';
+    const folio = r.metadata?.consecutiveId ?? '—';
+    const label = `#${folio}\n${shortDate}`;
+
+    const mec  = sec?.personnel?.mecanicos      ?? leg?.breakdown?.mecanicos      ?? 0;
+    const sold = sec?.personnel?.soldadores     ?? leg?.breakdown?.soldadores     ?? 0;
+    const aux  = sec?.personnel?.auxiliares     ?? leg?.breakdown?.auxiliares     ?? 0;
+    const arm  = sec?.personnel?.armadores      ?? leg?.breakdown?.armadores      ?? 0;
+    const hse  = sec?.personnel?.inspectoresHSE ?? 0;
+    const total = mec + sold + aux + arm + hse || (leg?.personnel ?? 0);
+
+    out.push({ label, mecanicos: mec, soldadores: sold, auxiliares: aux, armadores: arm, inspectoresHSE: hse, total });
+  }
+  return out;
+}
+
+// ─── Distribución porcentual de especialidades ────────────────────────────────
+export interface SpecialtyShare {
+  name:  string;
+  value: number;
+  pct:   number;
+  color: string;
+}
+
+const SPECIALTY_COLORS: Record<string, string> = {
+  'Mecánicos':      '#1565C0',
+  'Soldadores':     '#D32F2F',
+  'Auxiliares':     '#00695C',
+  'Armadores':      '#FFA000',
+  'Insp. HSE':      '#6A1B9A',
+};
+
+export function specialtyShareForContractor(
+  reports: ContractorDashboardReportLike[],
+  contractor: string,
+): SpecialtyShare[] {
+  let mec=0, sold=0, aux=0, arm=0, hse=0;
+  for (const r of reports) {
+    const sec = r.contractor_sections?.[contractor];
+    const leg = r.contractors?.find(c => (c.name ?? '').trim() === contractor);
+    if (!sec && !leg) continue;
+    mec  += sec?.personnel?.mecanicos      ?? leg?.breakdown?.mecanicos      ?? 0;
+    sold += sec?.personnel?.soldadores     ?? leg?.breakdown?.soldadores     ?? 0;
+    aux  += sec?.personnel?.auxiliares     ?? leg?.breakdown?.auxiliares     ?? 0;
+    arm  += sec?.personnel?.armadores      ?? leg?.breakdown?.armadores      ?? 0;
+    hse  += sec?.personnel?.inspectoresHSE ?? 0;
+  }
+  const tot = mec + sold + aux + arm + hse;
+  if (tot === 0) return [];
+  return [
+    { name: 'Mecánicos',  value: mec,  pct: Math.round(mec/tot*100),  color: SPECIALTY_COLORS['Mecánicos'] },
+    { name: 'Soldadores', value: sold, pct: Math.round(sold/tot*100), color: SPECIALTY_COLORS['Soldadores'] },
+    { name: 'Auxiliares', value: aux,  pct: Math.round(aux/tot*100),  color: SPECIALTY_COLORS['Auxiliares'] },
+    { name: 'Armadores',  value: arm,  pct: Math.round(arm/tot*100),  color: SPECIALTY_COLORS['Armadores'] },
+    { name: 'Insp. HSE',  value: hse,  pct: Math.round(hse/tot*100),  color: SPECIALTY_COLORS['Insp. HSE'] },
+  ].filter(s => s.value > 0);
+}
+
+// ─── Frecuencia de actividades por categoría (NLP) ───────────────────────────
+export interface ActivityFreqItem {
+  category: string;
+  icon:     string;
+  count:    number;         // folios donde aparece
+  pct:      number;         // % sobre total folios del contratista
+  color:    string;
+}
+
+const ACT_CATS_DASH = [
+  { id:'montaje',    label:'Montaje Mecánico',       icon:'⚙️', color:'#1565C0', kw:['montaj','instala','posicion','alinea','ensambla','fija','coloca','ubica','perno','platina','viga','estructura'] },
+  { id:'soldadura',  label:'Soldadura',               icon:'🔥', color:'#D32F2F', kw:['soldad','soldar','pase','raiz','relleno','electrodo','mig','tig','smaw','fcaw','metraj','bisel','junta','arco'] },
+  { id:'izaje',      label:'Izaje & Rigging',         icon:'🪝', color:'#6A1B9A', kw:['izaje','izar','grua','eslinga','señalero','maniobra','izado','levantam','aparejo'] },
+  { id:'inspeccion', label:'Inspección / QC',         icon:'🔍', color:'#00695C', kw:['inspecc','verific','control','ensayo','end','dimensional','medic','toleranc','calibr','liberac','certifi'] },
+  { id:'preparacion',label:'Preparación',             icon:'🔧', color:'#827717', kw:['limpiez','granallado','prepara','superficie','desoxid','lijad','pulid','sandblast','pintad'] },
+  { id:'civil',      label:'Obra Civil',              icon:'🏗️', color:'#37474F', kw:['concret','hormig','nivelac','excavac','rellen','compacta','fundam','anclaje','mortero'] },
+  { id:'hse',        label:'HSE & Permisos',          icon:'🛡️', color:'#E65100', kw:['permiso','charla','ats','pets','epp','seguridad','hse','capacitac','riesgo','peligro','incidente'] },
+  { id:'logistica',  label:'Logística & Acopio',      icon:'📦', color:'#4527A0', kw:['traslado','acopio','bodega','despacho','recepcion','almacenam','transporte','suministro'] },
+  { id:'topografia', label:'Topografía / Layout',     icon:'📐', color:'#2E7D32', kw:['replanteo','trazado','cotas','ejes','topograf','alineamiento','coordenad'] },
+];
+
+export function activityFrequency(
+  rows: ContractorReportRow[],
+  contractor: string,
+  allReports: ContractorDashboardReportLike[],
+): ActivityFreqItem[] {
+  const filtered = rows.filter(r => r.contractor === contractor);
+  const total = filtered.length || 1;
+
+  // Merge activities from row + contractor_sections
+  const texts = filtered.map(r => {
+    const rep = allReports.find(d => d.id === r.reportId);
+    const secAct = rep?.contractor_sections?.[contractor]?.activities ?? '';
+    return ((secAct || r.activities) ?? '').toLowerCase();
+  });
+
+  return ACT_CATS_DASH.map(cat => {
+    const count = texts.filter(t => cat.kw.some(kw => t.includes(kw))).length;
+    return { category: cat.label, icon: cat.icon, count, pct: Math.round(count/total*100), color: cat.color };
+  }).filter(c => c.count > 0).sort((a,b) => b.count - a.count);
 }
 
 const C = {

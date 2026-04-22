@@ -15,6 +15,9 @@ export interface PdtActivity {
   actualStartDate?: string;
   actualEndDate?: string;
   actualUpdatedAt?: string;
+  /** Clasificación inferida — no almacenada en Firestore, se calcula en runtime */
+  discipline?: string;
+  equipment?: string;
 }
 
 /** Texto por defecto del parser cuando falta nombre — la UI puede ocultar estas filas */

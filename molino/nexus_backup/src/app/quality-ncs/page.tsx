@@ -213,6 +213,229 @@ const PLANES_MONTAJE: Record<string, Omit<EtapaMontaje, 'id'>[]> = {
   ],
 };
 
+// ─── BMP — Bases de Medición y Pago — LM-ED-MEL-3410-3400-0001 ──────────────
+// Marmato 5,000 TPD · Pesos de avance por tipo de equipo (partidas M01–M12)
+
+type BmpPartida = 'M01' | 'M02' | 'M05' | 'M06' | 'M07' | 'M08' | 'M10' | 'M12';
+
+interface BmpTemplate {
+  partida: BmpPartida;
+  descripcion: string;
+  etapas: Array<Omit<EtapaMontaje, 'id' | 'estado' | 'responsable' | 'observaciones'>>;
+}
+
+const BMP_TEMPLATES: Record<BmpPartida, BmpTemplate> = {
+  // ── M01 · Filtro de Prensa (70 / 20 / 10) ────────────────────────────────
+  M01: {
+    partida: 'M01',
+    descripcion: 'Filtro de Prensa',
+    etapas: [
+      { numero_etapa: 1, titulo: 'Recepción, Inspección y Preservación', peso_porcentual: 5,
+        descripcion: 'Recepción e inspección contra packing list. Verificación de estado de preservación, placas filtrantes, membranas y bastidor. Registro fotográfico de todos los bultos.' },
+      { numero_etapa: 2, titulo: 'Montaje del Marco Estructural y Placas Filtrantes', peso_porcentual: 30,
+        descripcion: 'Montaje del bastidor principal sobre fundación. Instalación de placas filtrantes en secuencia, verificación de alineación lateral (tolerancia ±1 mm). Torqueo de pernos de anclaje según planos.' },
+      { numero_etapa: 3, titulo: 'Alineación del Pistón Hidráulico y Conexionado', peso_porcentual: 35,
+        descripcion: 'Alineación del cilindro hidráulico con la placa de presión. Conexionado de líneas hidráulicas (HP/LP), tuberías de alimentación/descarga de pulpa y cañerías de aire. Instalación del tablero local.' },
+      { numero_etapa: 4, titulo: 'Prueba en Vacío — Ciclo de Prensado y Apertura', peso_porcentual: 20,
+        descripcion: 'Verificación de sentido de movimiento del pistón hidráulico. Ciclo completo de prensado y apertura en vacío (sin pulpa). Verificación de presión de cierre, sellos y ausencia de fugas. OBLIGATORIO antes de autorización de energización.' },
+      { numero_etapa: 5, titulo: 'Reemplazo de Aceite de Prueba, Tarjeta Lube y Entrega de Protocolos', peso_porcentual: 10,
+        descripcion: 'Reemplazo del aceite hidráulico de prueba por aceite definitivo según especificación. Entrega de tarjeta de lubricación. Entrega formal del dossier de calidad (ITPs, torqueos, certificados). HITO FINAL — no completado hasta firma del protocolo de aceptación.' },
+    ],
+  },
+  // ── M02 · Bombas (Centrífugas, Pulpa, Pistón), Sist. Aire y Duchas (70/20/10) ─
+  M02: {
+    partida: 'M02',
+    descripcion: 'Bombas, Sistema de Aire y Duchas',
+    etapas: [
+      { numero_etapa: 1, titulo: 'Recepción, Inspección y Preservación', peso_porcentual: 5,
+        descripcion: 'Recepción e inspección contra packing list. Verificación de estado de preservación y bridas ciegas. Registro de números de serie. Almacenamiento según recomendación del fabricante.' },
+      { numero_etapa: 2, titulo: 'Preparación de Base y Montaje del Cuerpo de Bomba', peso_porcentual: 25,
+        descripcion: 'Verificación dimensional de placa base y pernos de anclaje. Grouteo con mortero epóxico (curado mínimo 72 h). Montaje del cuerpo de bomba y nivelación preliminar.' },
+      { numero_etapa: 3, titulo: 'Montaje de Motor, Alineación y Conexión de Acoplamiento', peso_porcentual: 20,
+        descripcion: 'Montaje del motor eléctrico. Alineación bomba–motor (método dial gauge o láser): paralelismo y angularidad dentro de tolerancias del fabricante. Instalación y torqueo del acoplamiento. Verificación de juego axial.' },
+      { numero_etapa: 4, titulo: 'Conexionado de Tuberías, Instrumentación y Eléctrico', peso_porcentual: 20,
+        descripcion: 'Conexión de cañerías de succión y descarga, bridas y soportes. Instalación de instrumentación (presostatos, termómetros, sensores de vibración). Tendido de cables, conexión al tablero y prueba de aislamiento del motor.' },
+      { numero_etapa: 5, titulo: 'Prueba en Vacío — Verificación de Rotación y Ajuste de Sellos', peso_porcentual: 20,
+        descripcion: 'Verificación de sentido de rotación ANTES de energización definitiva. Prueba de marcha en vacío. Verificación de temperatura de rodamientos, vibración y estanqueidad de sellos. REQUISITO PREVIO a la autorización de energización.' },
+      { numero_etapa: 6, titulo: 'Lubricación Inicial, Tarjeta Lube y Entrega de Protocolos', peso_porcentual: 10,
+        descripcion: 'Reemplazo de aceite/grasa de prueba por lubricante definitivo. Entrega de tarjeta de lubricación al área de mantenimiento. Entrega formal del dossier de calidad. HITO FINAL — no completado hasta firma del protocolo de aceptación.' },
+    ],
+  },
+  // ── M05 · Agitadores (70 / 10 / 15 / 5) ─────────────────────────────────
+  M05: {
+    partida: 'M05',
+    descripcion: 'Agitadores',
+    etapas: [
+      { numero_etapa: 1, titulo: 'Recepción e Inspección de Componentes', peso_porcentual: 5,
+        descripcion: 'Recepción e inspección del eje, impeller, caja reductora, motor y accesorios contra packing list. Verificación de preservación del eje y rodamientos. Registro fotográfico.' },
+      { numero_etapa: 2, titulo: 'Montaje de Cuerpo y Estructura Soporte', peso_porcentual: 35,
+        descripcion: 'Instalación del pedestal soporte sobre el techo del tanque. Nivelación y torqueo de pernos de anclaje. Montaje del reductor de velocidades y motor eléctrico.' },
+      { numero_etapa: 3, titulo: 'Montaje de Baffles, Eje e Impeller', peso_porcentual: 30,
+        descripcion: 'Instalación de baffles según planos. Ensamble e instalación del eje de agitación (verticalidad ±0,5°). Montaje del impeller o turbina. Conexión del acoplamiento eje–reductor.' },
+      { numero_etapa: 4, titulo: 'Verificación de Tolerancias y Alineación Final', peso_porcentual: 10,
+        descripcion: 'Verificación de holguras radiales y axiales del eje según tolerancias del fabricante. Verificación de espaciado impeller-pared. Torqueo final de todos los pernos según tabla de torques.' },
+      { numero_etapa: 5, titulo: 'Prueba Funcional en Vacío — Sentido de Rotación y Vibración', peso_porcentual: 15,
+        descripcion: 'Verificación de sentido de rotación del impeller ANTES de energización con fluido. Prueba de marcha en vacío: temperatura de rodamientos, vibración (< 2,5 mm/s RMS) y nivel de ruido. REQUISITO PREVIO a llenado del tanque.' },
+      { numero_etapa: 6, titulo: 'Lubricación (Aceite Definitivo), Tarjeta Lube y Entrega de Protocolos', peso_porcentual: 5,
+        descripcion: 'Drenaje y reemplazo del aceite del reductor de prueba por aceite definitivo según fabricante. Entrega de tarjeta de lubricación. Entrega formal del dossier de calidad. HITO FINAL — no completado hasta firma del protocolo de aceptación.' },
+    ],
+  },
+  // ── M06 · Tanques (80 / 15 / 5) ──────────────────────────────────────────
+  M06: {
+    partida: 'M06',
+    descripcion: 'Tanques',
+    etapas: [
+      { numero_etapa: 1, titulo: 'Recepción, Inspección y Verificación Dimensional', peso_porcentual: 5,
+        descripcion: 'Recepción e inspección de planchas, perfiles, boquillas y accesorios. Verificación dimensional y de calidad de material (certificados de acero, espesores). Registro fotográfico.' },
+      { numero_etapa: 2, titulo: 'Armado y Soldadura del Fondo del Tanque', peso_porcentual: 25,
+        descripcion: 'Preparación de superficies (sandblasting Sa 2½). Armado y soldadura de planchas del fondo. Inspección visual y prueba de burbuja en uniones soldadas. Verificación de planitud (máx. 6 mm en 3 m).' },
+      { numero_etapa: 3, titulo: 'Montaje y Soldadura de Paredes y Secciones', peso_porcentual: 25,
+        descripcion: 'Armado y soldadura de cilindros de pared en secciones. Verificación de redondez y verticalidad (±0,5% de diámetro). Instalación de refuerzos estructurales y rigidizadores.' },
+      { numero_etapa: 4, titulo: 'Instalación de Boquillas, Accesorios y Revestimiento', peso_porcentual: 25,
+        descripcion: 'Instalación y soldadura de boquillas, escaleras, plataformas y soportes. Aplicación de revestimiento interior (pintura o liner elastomérico). Curado según ficha técnica del recubrimiento.' },
+      { numero_etapa: 5, titulo: 'Prueba de Estanqueidad — Llenado con Agua (24 h mínimo)', peso_porcentual: 15,
+        descripcion: 'Llenado completo del tanque con agua para prueba de estanqueidad estática (mínimo 24 h). Inspección de uniones soldadas, boquillas y fondo. Verificación de asentamiento de fundación.' },
+      { numero_etapa: 6, titulo: 'Entrega de Dossier de Soldadura, Certificados NDT y Protocolos', peso_porcentual: 5,
+        descripcion: 'Entrega formal del dossier de calidad: registros de soldadura (WPS/PQR), inspecciones NDT (ultrasonido/LP), certificado de prueba hidráulica y protocolos de pintura. HITO FINAL — no completado hasta firma del protocolo de aceptación.' },
+    ],
+  },
+  // ── M07 · Puente Grúa (80 / 10 / 10) ─────────────────────────────────────
+  M07: {
+    partida: 'M07',
+    descripcion: 'Puente Grúa',
+    etapas: [
+      { numero_etapa: 1, titulo: 'Recepción e Inspección de Estructuras y Componentes', peso_porcentual: 5,
+        descripcion: 'Recepción e inspección de vigas principales, carrileras, polipasto y sistema eléctrico. Verificación dimensional y de pintura de las vigas. Registro fotográfico.' },
+      { numero_etapa: 2, titulo: 'Montaje de Vigas Principales y Arriostramientos', peso_porcentual: 25,
+        descripcion: 'Izaje e instalación de vigas principales sobre la estructura civil o metálica. Alineación longitudinal y transversal (rectitud de carrilera ±1 mm/m). Torqueo de empalmes de vigas.' },
+      { numero_etapa: 3, titulo: 'Ensamble del Carro Viajero y Polipasto / Winche', peso_porcentual: 25,
+        descripcion: 'Montaje del carro viajero sobre las vigas. Instalación del polipasto o winche. Verificación de holguras entre ruedas y carrilera. Instalación de topes de fin de carrera mecánicos y eléctricos.' },
+      { numero_etapa: 4, titulo: 'Balance, Alineación Final de Rieles y Conexión Eléctrica', peso_porcentual: 25,
+        descripcion: 'Verificación de balance y nivelación del puente (tolerancia ±2 mm de desnivel). Alineación precisa de rieles. Tendido de barra conductora, cableado del carro viajero y conexión al tablero.' },
+      { numero_etapa: 5, titulo: 'Prueba de Carga y Verificación de Seguridades (125% carga nominal)', peso_porcentual: 10,
+        descripcion: 'Prueba de funcionamiento en vacío. Prueba de carga estática (125% de la carga nominal, ASME B30.2). Verificación de limitadores de carga, finales de carrera y frenos. Medición de flecha máxima de la viga principal.' },
+      { numero_etapa: 6, titulo: 'Entrega de Certificado de Carga, Manual y Protocolos de Calidad', peso_porcentual: 10,
+        descripcion: 'Lubricación de mecanismos de traslación y elevación. Entrega formal del Certificado de Prueba de Carga, Manual de O&M y protocolos de calidad. HITO FINAL — no completado hasta firma del protocolo de aceptación.' },
+    ],
+  },
+  // ── M08 · Planta de Floculante (80 / 10 / 10) ────────────────────────────
+  M08: {
+    partida: 'M08',
+    descripcion: 'Planta de Floculante',
+    etapas: [
+      { numero_etapa: 1, titulo: 'Recepción e Inspección del Skid y Componentes', peso_porcentual: 5,
+        descripcion: 'Recepción e inspección del skid de floculante (tanques de preparación, maduración y día), bombas dosificadoras, instrumentación y tablero. Verificación contra packing list del proveedor.' },
+      { numero_etapa: 2, titulo: 'Montaje de Tanques y Agitadores de Preparación', peso_porcentual: 30,
+        descripcion: 'Montaje de tanques de preparación (make-up) y maduración sobre estructura soporte. Nivelación y anclaje. Montaje de agitadores de bajo corte para cada tanque.' },
+      { numero_etapa: 3, titulo: 'Montaje de Bombas Dosificadoras y Sistema de Tuberías', peso_porcentual: 25,
+        descripcion: 'Montaje de bombas dosificadoras de pistón o peristálticas. Conexionado de tuberías de solución de floculante, agua de dilución y dosificación a los espesadores.' },
+      { numero_etapa: 4, titulo: 'Alineación Final, Calibración de Instrumentos e Instalación Eléctrica', peso_porcentual: 20,
+        descripcion: 'Alineación de bombas con motores. Calibración de instrumentos de flujo y nivel. Tendido de cables, conexión al sistema de control (PLC/DCS) y puesta a punto del tablero local.' },
+      { numero_etapa: 5, titulo: 'Prueba Funcional — Secuencia de Preparación y Dosificación', peso_porcentual: 10,
+        descripcion: 'Prueba de secuencia de preparación de solución de floculante con agua. Verificación de bombas dosificadoras (caudal y presión nominal). Simulación de dosificación. Verificación de alarmas y enclavamientos.' },
+      { numero_etapa: 6, titulo: 'Lubricación, Tarjeta Lube y Entrega de Protocolos', peso_porcentual: 10,
+        descripcion: 'Lubricación de bombas dosificadoras y agitadores según especificación. Entrega de tarjeta de lubricación. Entrega formal del dossier de calidad (ITPs, certificados de prueba, manual de operación). HITO FINAL — no completado hasta firma del protocolo de aceptación.' },
+    ],
+  },
+  // ── M10 · Espesador (70 / 10 / 10 / 10) ──────────────────────────────────
+  M10: {
+    partida: 'M10',
+    descripcion: 'Espesador',
+    etapas: [
+      { numero_etapa: 1, titulo: 'Recepción, Inspección y Topografía Inicial', peso_porcentual: 5,
+        descripcion: 'Inspección de componentes contra packing list. Liberación topográfica de la fundación civil, pedestales y pernos de anclaje. Verificación dimensional de placas base.' },
+      { numero_etapa: 2, titulo: 'Montaje de Estructura Soporte y Columnas', peso_porcentual: 20,
+        descripcion: 'Izaje e instalación de columnas radiales y centrales. Montaje de arriostramientos cruzados y anillo de compresión. Nivelación y torqueo progresivo de pernos de anclaje.' },
+      { numero_etapa: 3, titulo: 'Montaje de Piso y Paredes del Tanque', peso_porcentual: 20,
+        descripcion: 'Ensamblaje en suelo y elevación de segmentos de pared. Atornillado progresivo con squirter washers y aplicación de sellante en juntas. Verificación de circularidad y nivel del tanque.' },
+      { numero_etapa: 4, titulo: 'Montaje del Mecanismo de Accionamiento y Puente', peso_porcentual: 15,
+        descripcion: 'Instalación del reductor de velocidades y anillo giratorio. Armado del puente (precamber), torqueo e izaje en tándem o simple. Sistema hidráulico de accionamiento (HPU) y elevador de rastras.' },
+      { numero_etapa: 5, titulo: 'Instalación del Pozo de Alimentación (Feedwell) y Brazos de Rastra', peso_porcentual: 10,
+        descripcion: 'Pre-ensamble e instalación del Feedwell (puertos de alimentación y dilución). Montaje de brazos de rastra (largos y cortos), palas y steady bearing inferior. Conexión del cableado de la HPU.' },
+      { numero_etapa: 6, titulo: 'Verificación de Tolerancias y Nivelación Final de Brazos', peso_porcentual: 10,
+        descripcion: 'Nivelación final de brazos de rastra (tolerancia ±2 mm). Verificación de holguras entre rastras y fondo del tanque. Torqueo final de todos los pernos según tabla de torques del fabricante.' },
+      { numero_etapa: 7, titulo: 'Pre-Comisionamiento: Prueba en Seco (Giro manual + HPU)', peso_porcentual: 5,
+        descripcion: 'Giro manual de rastras para verificar libre movimiento. Encendido de bomba hidráulica y verificación del levantamiento hidráulico de emergencia. Verificación de sentido de rotación. OBLIGATORIO antes de autorización de llenado.' },
+      { numero_etapa: 8, titulo: 'Pre-Comisionamiento: Prueba con Agua — Estanqueidad (24 h)', peso_porcentual: 5,
+        descripcion: 'Llenado del tanque con agua para prueba de fugas estáticas (mínimo 24 h). Verificación del torque de rastra girando sumergido. Medición de torque de arranque vs. nominal del fabricante.' },
+      { numero_etapa: 9, titulo: 'Lubricación (Reemplazo de Aceite de Prueba), Tarjeta Lube y Entrega de Protocolos', peso_porcentual: 10,
+        descripcion: 'Drenaje y reemplazo del aceite de prueba del reductor y HPU por aceite definitivo. Entrega de tarjeta de lubricación. Entrega formal del dossier de calidad (ITPs, certificados de prueba, registros de torqueo, manual de O&M). HITO FINAL — no completado hasta firma del protocolo de aceptación.' },
+    ],
+  },
+  // ── M12 · Misceláneos (70 / 10 / 15 / 5) ─────────────────────────────────
+  M12: {
+    partida: 'M12',
+    descripcion: 'Misceláneos',
+    etapas: [
+      { numero_etapa: 1, titulo: 'Recepción e Inspección de Componentes', peso_porcentual: 5,
+        descripcion: 'Recepción e inspección contra packing list. Verificación de estado general, números de serie y certificados del fabricante. Registro fotográfico.' },
+      { numero_etapa: 2, titulo: 'Preparación de Fundación o Estructura Soporte', peso_porcentual: 20,
+        descripcion: 'Verificación dimensional de la fundación civil o estructura metálica. Instalación y nivelación de pernos de anclaje. Grouteo epóxico de placa base si aplica (curado mínimo 72 h).' },
+      { numero_etapa: 3, titulo: 'Montaje Principal del Equipo', peso_porcentual: 25,
+        descripcion: 'Izaje e instalación del equipo sobre la fundación o estructura soporte. Nivelación y alineación preliminar. Torqueo de pernos de anclaje según planos y especificaciones del fabricante.' },
+      { numero_etapa: 4, titulo: 'Conexionado Mecánico, Eléctrico e Instrumental', peso_porcentual: 20,
+        descripcion: 'Conexión de tuberías de proceso, hidráulicas o neumáticas. Tendido de cables y conexión al tablero de control. Instalación de instrumentación y señalización de seguridad.' },
+      { numero_etapa: 5, titulo: 'Verificación de Tolerancias y Ajuste Final', peso_porcentual: 10,
+        descripcion: 'Verificación de todas las holguras, juegos y tolerancias del equipo según manual del fabricante. Ajuste y retorqueo final. Prueba de aislamiento de motor (si aplica).' },
+      { numero_etapa: 6, titulo: 'Prueba Funcional en Vacío — Sentido de Rotación y Seguridades', peso_porcentual: 15,
+        descripcion: 'Verificación de sentido de rotación ANTES de energización con fluido o carga. Prueba de marcha en vacío. Medición de temperatura de rodamientos y vibración. Verificación de alarmas de protección. REQUISITO PREVIO a la autorización de energización.' },
+      { numero_etapa: 7, titulo: 'Lubricación (Tarjeta Lube + Aceite Definitivo) y Entrega de Protocolos', peso_porcentual: 5,
+        descripcion: 'Reemplazo de aceite/grasa de prueba por lubricante definitivo conforme a especificación del fabricante. Entrega de tarjeta de lubricación. Entrega formal del dossier de calidad. HITO FINAL — no completado hasta firma del protocolo de aceptación.' },
+    ],
+  },
+};
+
+/** Determina la partida BMP (M01–M12) según el nombre del equipo. */
+function getEquipoBmpPartida(eq: EquipoTecnico): BmpPartida {
+  const n = (eq.nombre || '').toUpperCase();
+  if (n.includes('FILTRO DE PRENSA') || n.includes('FILTER PRESS')) return 'M01';
+  if (
+    n.includes('PUENTE GRÚA') || n.includes('PUENTE GRUA') ||
+    n.includes('GRÚA PUENTE') || n.includes('GRUA PUENTE') ||
+    n.includes('OVERHEAD CRANE') || n.includes('BRIDGE CRANE') || n.includes('EOT CRANE')
+  ) return 'M07';
+  if (n.includes('ESPESADOR') || n.includes('THICKENER')) return 'M10';
+  if (n.includes('FLOCULANTE') || n.includes('FLOCCULANT') || n.includes('REACTORWELL')) return 'M08';
+  if (n.includes('AGITADOR') || n.includes('AGITATOR') || n.includes('MEZCLADOR') || n.includes('MIXER')) return 'M05';
+  if (
+    n.includes('TANQUE') || n.includes('TANK') ||
+    n.includes('ESTANQUE') || n.includes('SUMP') ||
+    n.includes('CAJÓN') || n.includes('CAJON')
+  ) return 'M06';
+  if (
+    n.includes('BOMBA') || n.includes('PUMP') ||
+    n.includes('SISTEMA DE AIRE') || n.includes('AIR SYSTEM') ||
+    n.includes('DUCHA') || n.includes('SHOWER') ||
+    n.includes('COMPRESOR') || n.includes('COMPRESSOR') ||
+    n.includes('SOPLADOR') || n.includes('BLOWER')
+  ) return 'M02';
+  return 'M12';
+}
+
+/**
+ * Devuelve el plan de etapas para un equipo.
+ * Prioridad: plan personalizado en PLANES_MONTAJE → plantilla BMP automática.
+ */
+function getBmpPlan(eq: EquipoTecnico): Omit<EtapaMontaje, 'id'>[] {
+  if (PLANES_MONTAJE[eq.tag]) return PLANES_MONTAJE[eq.tag];
+  const partida = getEquipoBmpPartida(eq);
+  return BMP_TEMPLATES[partida].etapas.map((e) => ({
+    ...e,
+    estado: 'Pendiente' as EtapaEstado,
+    responsable: '',
+    observaciones: '',
+  }));
+}
+
+/** Etiqueta de partida BMP para mostrar en la interfaz. */
+function getEquipoBmpLabel(eq: EquipoTecnico): string {
+  if (PLANES_MONTAJE[eq.tag]) return 'Plan Personalizado';
+  const partida = getEquipoBmpPartida(eq);
+  return `${partida} — ${BMP_TEMPLATES[partida].descripcion}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const ETAPA_ESTADO_COLORS: Record<EtapaEstado, string> = {
   'Pendiente':  'bg-slate-500/10 text-slate-400 border-slate-500/30',
   'En Proceso': 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
@@ -365,7 +588,7 @@ export default function QualityNCSPage() {
 
   // ── Plan de Montaje (subcollección) ─────────────────────────────────────────
   const planMontajeQuery = useMemoFirebase(() => {
-    if (!firestore || !selectedEquipo || !PLANES_MONTAJE[selectedEquipo.tag]) return null;
+    if (!firestore || !selectedEquipo) return null;
     return collection(firestore, 'equipment', selectedEquipo.tag, 'plan_montaje');
   }, [firestore, selectedEquipo]);
   const { data: planRaw, isLoading: planLoading } = useCollection(planMontajeQuery);
@@ -385,7 +608,7 @@ export default function QualityNCSPage() {
 
   // ── Punch List / Pendientes (subcollección) ──────────────────────────────────
   const pendientesQuery = useMemoFirebase(() => {
-    if (!firestore || !selectedEquipo || !PLANES_MONTAJE[selectedEquipo.tag]) return null;
+    if (!firestore || !selectedEquipo) return null;
     return collection(firestore, 'equipment', selectedEquipo.tag, 'pendientes');
   }, [firestore, selectedEquipo]);
   const { data: punchRaw, isLoading: punchLoading } = useCollection(pendientesQuery);
@@ -556,8 +779,8 @@ export default function QualityNCSPage() {
   // ── Handlers Plan de Montaje ────────────────────────────────────────────────
   const handleSeedPlan = async () => {
     if (!firestore || !selectedEquipo || !user) return;
-    const plan = PLANES_MONTAJE[selectedEquipo.tag];
-    if (!plan) return;
+    const plan = getBmpPlan(selectedEquipo);
+    if (!plan || plan.length === 0) return;
     setPlanSeeding(true);
     try {
       const batch = writeBatch(firestore);
@@ -977,13 +1200,16 @@ export default function QualityNCSPage() {
                   )}
 
                   {/* ── Plan de Montaje ────────────────────────────────────── */}
-                  {PLANES_MONTAJE[selectedEquipo.tag] && (
+                  {selectedEquipo && (
                     <Card className="rounded-none border-primary/10 bg-slate-900/50">
                       <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="text-[11px] font-display font-black uppercase tracking-widest text-primary flex items-center gap-2">
                             <TrendingUp className="w-3.5 h-3.5" /> Plan de Montaje
                           </CardTitle>
+                          <p className="text-[8px] font-display uppercase tracking-widest text-primary/40 mt-0.5">
+                            BMP · {getEquipoBmpLabel(selectedEquipo)}
+                          </p>
                           {planMontaje && planMontaje.length > 0 && (
                             <p className="text-[9px] text-muted-foreground font-mono-tech mt-0.5">
                               Avance global: <span className="text-primary font-bold">{avanceCalculado}%</span>
@@ -1163,7 +1389,7 @@ export default function QualityNCSPage() {
                     </CardContent>
                   </Card>
                   {/* ── Punch List / Pendientes ─────────────────────────── */}
-                  {PLANES_MONTAJE[selectedEquipo.tag] && (
+                  {selectedEquipo && (
                     <Card className="rounded-none border-primary/10 bg-slate-900/50">
                       <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
                         <div>

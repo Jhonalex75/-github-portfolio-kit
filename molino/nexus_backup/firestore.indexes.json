@@ -1,0 +1,23 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "equipment_photos_meta",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tag",        "order": "ASCENDING"  },
+        { "fieldPath": "date",       "order": "DESCENDING" },
+        { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "equipment_photos_meta",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tag",        "order": "ASCENDING"  },
+        { "fieldPath": "date",       "order": "ASCENDING"  },
+        { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
