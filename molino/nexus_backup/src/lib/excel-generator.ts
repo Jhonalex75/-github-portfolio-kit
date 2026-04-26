@@ -40,7 +40,8 @@ export interface DailyReportData {
   contractors?: Array<{
     name: string;
     personnel: number;
-    breakdown?: { mecanicos?: number; soldadores?: number; auxiliares?: number; armadores?: number };
+    enabled?: boolean;
+    breakdown?: Record<string, number>;
     equipment?: { grua?: number; generador?: number; andamios?: number; camionGrua?: number; torreGrua?: number; equipoEspecial?: string };
     lostHours?: { malClima?: number; parosHSE?: number; fallasTecnicas?: number };
   }>;
@@ -50,17 +51,18 @@ export interface DailyReportData {
     nearMisses: number;
     eppObservations: string;
     lessonsLearned: string;
-  };
+  } | null;
   admin_activities?: Array<{ name: string; progress: number }>;
   // ── Per-contractor sections (new format) ──
   contractor_sections?: Record<string, {
-    activities:     string;
-    personnel:      { mecanicos: number; soldadores: number; auxiliares: number; armadores: number; inspectoresHSE: number };
-    checklist:      { workAtHeights: boolean; hotWork: boolean; confinedSpace: boolean; scaffolding: boolean };
-    safetyInfo:     { comments: string; incidents: number; nearMisses: number; eppObservations: string; lessonsLearned: string };
-    equipment:      { grua: number; generador: number; andamios: number; camionGrua: number; torreGrua: number; equipoEspecial: string };
-    lostHours:      { malClima: number; parosHSE: number; fallasTecnicas: number; charlaInfo?: number };
+    activities:      string;
+    personnel:       Record<string, number>;
+    checklist:       { workAtHeights: boolean; hotWork: boolean; confinedSpace: boolean; scaffolding: boolean };
+    safetyInfo:      { comments: string; incidents: number; nearMisses: number; eppObservations: string; lessonsLearned: string };
+    equipment:       { grua: number; generador: number; andamios: number; camionGrua: number; torreGrua: number; equipoEspecial: string };
+    lostHours:       { malClima: number; parosHSE: number; fallasTecnicas: number; charlaInfo?: number };
     weldingMetrics?: Array<{ estructura: string; metrajeMl: number; soldadores: number }>;
+    sectionsEnabled?: { hse: boolean; seguridad: boolean };
   }>;
   pdfSource?: {
     storageUrl:    string;

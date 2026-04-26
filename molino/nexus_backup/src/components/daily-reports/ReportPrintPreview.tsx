@@ -34,16 +34,10 @@ interface WeldingMetricRow {
 }
 
 interface ContractorSection {
-  contratista: string;   // 'HL-GISAICO' | 'TECNITANQUES' | 'CYC'
-  sistema?: string;      // 'LIXIVIACIÓN' | 'CIP' | 'GENERAL'
+  contratista: string;
+  sistema?: string;
   activities: string[];
-  personal: {
-    mecanicos:      number;
-    soldadores:     number;
-    auxiliares:     number;
-    armadores:      number;
-    inspectoresHSE: number;
-  };
+  personal: Record<string, number>;
   equipment: {
     grua:           number;
     generador:      number;
@@ -59,7 +53,7 @@ interface ContractorSection {
     cuasiAccidentes:     number;
     observacionesEpp:    string;
     leccionesAprendidas: string;
-  };
+  } | null;
   weldingMetrics?: WeldingMetricRow[];
 }
 
@@ -101,8 +95,32 @@ function getContractorColor(name: string): string {
 }
 
 function totalPersonal(p: ContractorSection['personal']): number {
-  return p.mecanicos + p.soldadores + p.auxiliares + p.armadores + p.inspectoresHSE;
+  return Object.values(p).reduce((s, v) => s + (typeof v === 'number' ? v : 0), 0);
 }
+
+const PERSONNEL_LABELS: Record<string, string> = {
+  soldadoresCalificados: 'Soldadores Calificados',
+  auxiliaresAyudantes:   'Auxiliares / Ayudantes',
+  armadores:             'Armadores',
+  pailero:               'Pailero',
+  operadorGatos:         'Operador Gatos',
+  andamieros:            'Andamieros',
+  directorObra:          'Director de Obra',
+  ingResidente:          'Ing. Residente',
+  supervisorMecanico:    'Supervisor Mecánico',
+  ingQAQC:               'Ing. QAQC',
+  inspectoresHSE:        'Inspectores HSE',
+  almacenista:           'Almacenista',
+  programador:           'Programador',
+  administrador:         'Administrador',
+  rescatista:            'Rescatista',
+  operadorGrua:          'Operador Grúa',
+  aparejador:            'Aparejador',
+  // legacy fallbacks
+  mecanicos:   'Mecánicos Armadores',
+  soldadores:  'Soldadores Calificados',
+  auxiliares:  'Auxiliares / Ayudantes',
+};
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -277,18 +295,16 @@ function ContractorCard({ section }: { section: ContractorSection }) {
                 </tr>
               </thead>
               <tbody>
-                {[
-                  ['Mecánicos Armadores',    section.personal.mecanicos],
-                  ['Soldadores Calificados', section.personal.soldadores],
-                  ['Auxiliares / Ayudantes', section.personal.auxiliares],
-                  ['Armadores Estructurales', section.personal.armadores],
-                  ['Inspectores HSE',         section.personal.inspectoresHSE],
-                ].map(([label, val], i) => (
-                  <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#FFF' : '#F5F5F5' }}>
-                    <td style={{ padding: '3px 8px', borderBottom: '1px solid #E0E0E0' }}>{String(label)}</td>
-                    <td style={{ padding: '3px 8px', borderBottom: '1px solid #E0E0E0', textAlign: 'center', fontWeight: 'bold' }}>{String(val)}</td>
-                  </tr>
-                ))}
+                {Object.entries(section.personal)
+                  .filter(([, val]) => typeof val === 'number' && val > 0)
+                  .map(([key, val], i) => (
+                    <tr key={key} style={{ backgroundColor: i % 2 === 0 ? '#FFF' : '#F5F5F5' }}>
+                      <td style={{ padding: '3px 8px', borderBottom: '1px solid #E0E0E0' }}>
+                        {PERSONNEL_LABELS[key] ?? key}
+                      </td>
+                      <td style={{ padding: '3px 8px', borderBottom: '1px solid #E0E0E0', textAlign: 'center', fontWeight: 'bold' }}>{val}</td>
+                    </tr>
+                  ))}
                 <tr style={{ backgroundColor: '#E3F2FD' }}>
                   <td style={{ padding: '4px 8px', fontWeight: 'bold', fontSize: '10px' }}>TOTAL PERSONAL</td>
                   <td style={{ padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', fontSize: '10px' }}>{total}</td>
@@ -333,29 +349,41 @@ function ContractorCard({ section }: { section: ContractorSection }) {
         </div>
 
         {/* HSE Checklist */}
-        <SectionTitle color="#B71C1C">◆ CHECKLIST HSE — PERMISOS DE TRABAJO ACTIVOS</SectionTitle>
-        <HseTable permisos={section.hsePermisos} />
+        {section.hsePermisos.length > 0 && (
+          <>
+            <SectionTitle color="#B71C1C">◆ CHECKLIST HSE — PERMISOS DE TRABAJO ACTIVOS</SectionTitle>
+            <HseTable permisos={section.hsePermisos} />
+          </>
+        )}
 
         {/* Safety */}
-        <SectionTitle color="#4A148C">◆ CONDICIONES DE SEGURIDAD Y MEDIO AMBIENTE</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px', backgroundColor: '#E0E0E0' }}>
-          <DataRow label="Comentarios Generales"     value={section.seguridad.comentarios || '—'} />
-          <DataRow label="Observaciones EPP"         value={section.seguridad.observacionesEpp || '—'} />
-          <DataRow label="🔴 Incidentes"             value={section.seguridad.incidentes} highlight />
-          <DataRow label="🟡 Cuasi-Accidentes"       value={section.seguridad.cuasiAccidentes} highlight />
-        </div>
-        {section.seguridad.leccionesAprendidas && (
-          <div style={{
-            marginTop: '4px',
-            padding: '6px 10px',
-            backgroundColor: '#E8F5E9',
-            border: '1px solid #A5D6A7',
-            borderRadius: '3px',
-            fontSize: '9px',
-            fontFamily: 'Arial, sans-serif',
-            color: '#1B5E20',
-          }}>
-            📚 <strong>Lección Aprendida:</strong> {section.seguridad.leccionesAprendidas}
+        {section.seguridad ? (
+          <>
+            <SectionTitle color="#4A148C">◆ CONDICIONES DE SEGURIDAD Y MEDIO AMBIENTE</SectionTitle>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px', backgroundColor: '#E0E0E0' }}>
+              <DataRow label="Comentarios Generales"     value={section.seguridad.comentarios || '—'} />
+              <DataRow label="Observaciones EPP"         value={section.seguridad.observacionesEpp || '—'} />
+              <DataRow label="🔴 Incidentes"             value={section.seguridad.incidentes} highlight />
+              <DataRow label="🟡 Cuasi-Accidentes"       value={section.seguridad.cuasiAccidentes} highlight />
+            </div>
+            {section.seguridad.leccionesAprendidas && (
+              <div style={{
+                marginTop: '4px',
+                padding: '6px 10px',
+                backgroundColor: '#E8F5E9',
+                border: '1px solid #A5D6A7',
+                borderRadius: '3px',
+                fontSize: '9px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#1B5E20',
+              }}>
+                📚 <strong>Lección Aprendida:</strong> {section.seguridad.leccionesAprendidas}
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ padding: '6px 10px', backgroundColor: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: '3px', fontSize: '9px', fontFamily: 'Arial, sans-serif', color: '#9E9E9E', fontStyle: 'italic' }}>
+            Sección de Seguridad no aplicable para este contratista en esta jornada.
           </div>
         )}
 

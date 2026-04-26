@@ -27,9 +27,8 @@ import {
   Save, FileText, CheckCircle2, AlertTriangle,
   Shield, Users, Edit2, ChevronDown, ClipboardList,
   Building2, MessageSquare, TrendingUp, Percent,
-  HardHat, AlertCircle, BookOpen, Printer, Sparkles, FileSpreadsheet,
+  HardHat, AlertCircle, BookOpen, Printer, FileSpreadsheet,
 } from 'lucide-react';
-import { extractDailyReportFromPdf } from '@/ai/flows/extract-daily-report-from-pdf';
 import { generateDailyReportExcel, DailyReportData } from '@/lib/excel-generator';
 import { MonthlyDashboard } from '@/components/daily-reports/MonthlyDashboard';
 import { ContractorActivityDashboard } from '@/components/daily-reports/ContractorActivityDashboard';
@@ -111,11 +110,25 @@ interface Evidence     { type: 'photo' | 'pdf'; urlOrBase64: string; name: strin
 interface AdminActivity { name: string; progress: number }
 
 interface ContractorPersonnel {
-  mecanicos:      number;
-  soldadores:     number;
-  auxiliares:     number;
-  armadores:      number;
-  inspectoresHSE: number;
+  // Roles comunes (todos los contratistas)
+  soldadoresCalificados: number;
+  auxiliaresAyudantes:   number;
+  armadores:             number;
+  pailero:               number;
+  operadorGatos:         number;
+  andamieros:            number;
+  directorObra:          number;
+  ingResidente:          number;
+  supervisorMecanico:    number;
+  ingQAQC:               number;
+  inspectoresHSE:        number;
+  // Roles extendidos (HL-GISAICO + TECNITANQUES)
+  almacenista:           number;
+  programador:           number;
+  administrador:         number;
+  rescatista:            number;
+  operadorGrua:          number;
+  aparejador:            number;
 }
 interface ContractorEquipment {
   grua:           number;
@@ -138,7 +151,10 @@ interface SafetyInfo {
   eppObservations:  string;
   lessonsLearned:   string;
 }
-
+interface SectionsEnabled {
+  hse:       boolean;
+  seguridad: boolean;
+}
 interface WeldingEntry {
   estructura:  string;
   metrajeMl:   number;
@@ -147,35 +163,84 @@ interface WeldingEntry {
 
 /** Data stored per-contractor */
 interface PerContractorData {
-  activities:     string;
-  personnel:      ContractorPersonnel;
-  checklist:      ChecklistHSE;
-  safetyInfo:     SafetyInfo;
-  equipment:      ContractorEquipment;
-  lostHours:      ContractorLostHours;
-  weldingMetrics: WeldingEntry[];
+  activities:      string;
+  personnel:       ContractorPersonnel;
+  checklist:       ChecklistHSE;
+  safetyInfo:      SafetyInfo;
+  equipment:       ContractorEquipment;
+  lostHours:       ContractorLostHours;
+  weldingMetrics:  WeldingEntry[];
+  sectionsEnabled: SectionsEnabled;
 }
 
 type ContractorSections = Record<ContractorId, PerContractorData>;
 
+// ─── Personnel fields config ──────────────────────────────────────────────────
+// FULL = HL-GISAICO + TECNITANQUES (17 roles)   CYC_ONLY = CYC (11 roles)
+const PERSONNEL_FIELDS_FULL: [keyof ContractorPersonnel, string, string][] = [
+  ['soldadoresCalificados', 'Soldadores Calificados', '🔥'],
+  ['auxiliaresAyudantes',   'Auxiliares / Ayudantes', '👷'],
+  ['armadores',             'Armadores',              '🏗️'],
+  ['pailero',               'Pailero',                '🔧'],
+  ['operadorGatos',         'Operador Gatos',         '⚙️'],
+  ['andamieros',            'Andamieros',             '🪜'],
+  ['directorObra',          'Director de Obra',       '👔'],
+  ['ingResidente',          'Ing. Residente',         '🎓'],
+  ['supervisorMecanico',    'Supervisor Mecánico',    '🔩'],
+  ['ingQAQC',               'Ing. QAQC',              '✅'],
+  ['inspectoresHSE',        'Inspectores HSE',        '⛑️'],
+  ['almacenista',           'Almacenista',            '📦'],
+  ['programador',           'Programador',            '💻'],
+  ['administrador',         'Administrador',          '📋'],
+  ['rescatista',            'Rescatista',             '🚑'],
+  ['operadorGrua',          'Operador Grúa',          '🏗️'],
+  ['aparejador',            'Aparejador',             '⛓️'],
+];
+const PERSONNEL_FIELDS_CYC = PERSONNEL_FIELDS_FULL.slice(0, 11);
+
+// ─── Default welding tags per contractor ──────────────────────────────────────
+const DEFAULT_WELDING_TECNITANQUES: WeldingEntry[] = [
+  { estructura: '1405-TK-001', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1410-TK-002', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1410-TK-003', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1410-TK-004', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1410-TK-005', metrajeMl: 0, soldadores: 0 },
+];
+const DEFAULT_WELDING_CYC: WeldingEntry[] = [
+  { estructura: '1420-TK-006', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1420-TK-007', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1420-TK-008', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1420-TK-009', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1420-TK-010', metrajeMl: 0, soldadores: 0 },
+  { estructura: '1420-TK-011', metrajeMl: 0, soldadores: 0 },
+];
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 const EMPTY_SAFETY: SafetyInfo = { comments: '', incidents: 0, nearMisses: 0, eppObservations: '', lessonsLearned: '' };
 const EMPTY_CHECKLIST: ChecklistHSE = { workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false };
+const EMPTY_PERSONNEL: ContractorPersonnel = {
+  soldadoresCalificados: 0, auxiliaresAyudantes: 0, armadores: 0,
+  pailero: 0, operadorGatos: 0, andamieros: 0, directorObra: 0,
+  ingResidente: 0, supervisorMecanico: 0, ingQAQC: 0, inspectoresHSE: 0,
+  almacenista: 0, programador: 0, administrador: 0, rescatista: 0,
+  operadorGrua: 0, aparejador: 0,
+};
 
 const DEFAULT_CONTRACTOR_DATA = (): PerContractorData => ({
-  activities:     '',
-  personnel:      { mecanicos: 0, soldadores: 0, auxiliares: 0, armadores: 0, inspectoresHSE: 0 },
-  checklist:      { ...EMPTY_CHECKLIST },
-  safetyInfo:     { ...EMPTY_SAFETY },
-  equipment:      { grua: 0, generador: 0, andamios: 0, camionGrua: 0, torreGrua: 0, equipoEspecial: '' },
-  lostHours:      { malClima: 0, parosHSE: 0, fallasTecnicas: 0, charlaInfo: 0 },
-  weldingMetrics: [],
+  activities:      '',
+  personnel:       { ...EMPTY_PERSONNEL },
+  checklist:       { ...EMPTY_CHECKLIST },
+  safetyInfo:      { ...EMPTY_SAFETY },
+  equipment:       { grua: 0, generador: 0, andamios: 0, camionGrua: 0, torreGrua: 0, equipoEspecial: '' },
+  lostHours:       { malClima: 0, parosHSE: 0, fallasTecnicas: 0, charlaInfo: 0 },
+  weldingMetrics:  [],
+  sectionsEnabled: { hse: true, seguridad: true },
 });
 
 const DEFAULT_SECTIONS = (): ContractorSections => ({
   'HL-GISAICO':   DEFAULT_CONTRACTOR_DATA(),
-  'TECNITANQUES': DEFAULT_CONTRACTOR_DATA(),
-  'CYC':          DEFAULT_CONTRACTOR_DATA(),
+  'TECNITANQUES': { ...DEFAULT_CONTRACTOR_DATA(), weldingMetrics: DEFAULT_WELDING_TECNITANQUES.map(w => ({ ...w })) },
+  'CYC':          { ...DEFAULT_CONTRACTOR_DATA(), weldingMetrics: DEFAULT_WELDING_CYC.map(w => ({ ...w })) },
 });
 
 // ─── Firestore doc type ───────────────────────────────────────────────────────
@@ -185,13 +250,14 @@ interface ReportDoc {
     consecutiveId: string; date: string; weather: string;
     authorUid: string; authorName: string; frente: string;
     proyectoRef: string; status: 'draft' | 'anchored';
+    [key: string]: unknown; // enabledContractors, avancesEnabled
   };
   seguridad_hse:      ChecklistHSE & { hasActiveRisk: boolean };
   recursos_frente:    { type: string; count: number }[];
   contractor_sections?: ContractorSections;
-  // legacy
-  contractors?:       { name: string; personnel: number; breakdown?: Partial<ContractorPersonnel>; equipment?: Partial<ContractorEquipment>; lostHours?: Partial<ContractorLostHours> }[];
-  safety_info?:       SafetyInfo;
+  // legacy (uses Record to avoid strict type conflicts with old field names)
+  contractors?:       { name: string; personnel: number; enabled?: boolean; breakdown?: Record<string, number>; equipment?: Partial<ContractorEquipment>; lostHours?: Partial<ContractorLostHours> }[];
+  safety_info?:       SafetyInfo | null;
   admin_activities?:  AdminActivity[];
   activities:         string;
   evidence:           Evidence[];
@@ -227,20 +293,27 @@ function resolveContractorData(r: ReportDoc, cid: ContractorId): PerContractorDa
   // New format: contractor_sections exists and has data for this contractor
   const fromNew = (r.contractor_sections as Record<string, PerContractorData> | undefined)?.[cid];
   if (fromNew) {
-    // Ensure all fields are present (Firestore may return partial objects)
     const def = DEFAULT_CONTRACTOR_DATA();
     return {
-      activities:     fromNew.activities     ?? '',
-      personnel:      { ...def.personnel,  ...(fromNew.personnel  ?? {}) },
-      checklist:      { ...def.checklist,  ...(fromNew.checklist  ?? {}) },
-      safetyInfo:     { ...def.safetyInfo, ...(fromNew.safetyInfo ?? {}) },
-      equipment:      { ...def.equipment,  ...(fromNew.equipment  ?? {}) },
-      lostHours:      { ...def.lostHours,  ...(fromNew.lostHours  ?? {}) },
-      weldingMetrics: (fromNew as PerContractorData).weldingMetrics ?? [],
+      activities:      fromNew.activities      ?? '',
+      personnel:       { ...EMPTY_PERSONNEL,   ...(fromNew.personnel   ?? {}) },
+      checklist:       { ...EMPTY_CHECKLIST,   ...(fromNew.checklist   ?? {}) },
+      safetyInfo:      { ...EMPTY_SAFETY,      ...(fromNew.safetyInfo  ?? {}) },
+      equipment:       { ...def.equipment,     ...(fromNew.equipment   ?? {}) },
+      lostHours:       { ...def.lostHours,     ...(fromNew.lostHours   ?? {}) },
+      weldingMetrics:  (fromNew as PerContractorData).weldingMetrics   ?? [],
+      sectionsEnabled: (fromNew as PerContractorData).sectionsEnabled  ?? { hse: true, seguridad: true },
     };
   }
 
-  // Legacy format: only HL-GISAICO has data from the old fields
+  // Legacy migration helper — maps old breakdown fields to new personnel keys
+  const migratePersonnel = (breakdown?: Partial<Record<string, number>>): ContractorPersonnel => ({
+    ...EMPTY_PERSONNEL,
+    soldadoresCalificados: breakdown?.soldadores ?? 0,
+    auxiliaresAyudantes:   breakdown?.auxiliares ?? 0,
+    armadores:             breakdown?.armadores  ?? 0,
+  });
+
   const d = DEFAULT_CONTRACTOR_DATA();
   if (cid === 'HL-GISAICO') {
     d.activities = r.activities || '';
@@ -252,70 +325,32 @@ function resolveContractorData(r: ReportDoc, cid: ContractorId): PerContractorDa
     };
     d.safetyInfo = r.safety_info ? { ...r.safety_info } : { ...EMPTY_SAFETY };
     const old = r.contractors?.find(c => c.name === 'HL-GISAICO');
-    if (old?.breakdown) {
-      d.personnel = {
-        mecanicos:      old.breakdown.mecanicos  ?? 0,
-        soldadores:     old.breakdown.soldadores ?? 0,
-        auxiliares:     old.breakdown.auxiliares ?? 0,
-        armadores:      old.breakdown.armadores  ?? 0,
-        inspectoresHSE: 0,
-      };
-    }
-    if (old?.equipment) {
-      d.equipment = {
-        grua:           old.equipment.grua          ?? 0,
-        generador:      old.equipment.generador     ?? 0,
-        andamios:       old.equipment.andamios      ?? 0,
-        camionGrua:     old.equipment.camionGrua    ?? 0,
-        torreGrua:      old.equipment.torreGrua     ?? 0,
-        equipoEspecial: old.equipment.equipoEspecial ?? '',
-      };
-    }
-    if (old?.lostHours) {
-      d.lostHours = {
-        malClima:       old.lostHours.malClima       ?? 0,
-        parosHSE:       old.lostHours.parosHSE       ?? 0,
-        fallasTecnicas: old.lostHours.fallasTecnicas ?? 0,
-        charlaInfo:     old.lostHours.charlaInfo     ?? 0,
-      };
-    }
-    // Also try legacy recursos_frente
+    if (old?.breakdown) d.personnel = migratePersonnel(old.breakdown as Record<string, number>);
+    if (old?.equipment)  d.equipment  = { grua: old.equipment.grua ?? 0, generador: old.equipment.generador ?? 0, andamios: old.equipment.andamios ?? 0, camionGrua: old.equipment.camionGrua ?? 0, torreGrua: old.equipment.torreGrua ?? 0, equipoEspecial: old.equipment.equipoEspecial ?? '' };
+    if (old?.lostHours)  d.lostHours  = { malClima: old.lostHours.malClima ?? 0, parosHSE: old.lostHours.parosHSE ?? 0, fallasTecnicas: old.lostHours.fallasTecnicas ?? 0, charlaInfo: old.lostHours.charlaInfo ?? 0 };
     if (!old && r.recursos_frente?.length) {
       r.recursos_frente.forEach(rec => {
-        if (rec.type.toLowerCase().includes('mecán'))  d.personnel.mecanicos      = rec.count;
-        if (rec.type.toLowerCase().includes('soldad')) d.personnel.soldadores     = rec.count;
-        if (rec.type.toLowerCase().includes('auxili')) d.personnel.auxiliares     = rec.count;
-        if (rec.type.toLowerCase().includes('armad'))  d.personnel.armadores      = rec.count;
-        if (rec.type.toLowerCase().includes('hse'))    d.personnel.inspectoresHSE = rec.count;
+        if (rec.type.toLowerCase().includes('soldad')) d.personnel.soldadoresCalificados = rec.count;
+        if (rec.type.toLowerCase().includes('auxili')) d.personnel.auxiliaresAyudantes   = rec.count;
+        if (rec.type.toLowerCase().includes('armad'))  d.personnel.armadores             = rec.count;
+        if (rec.type.toLowerCase().includes('hse'))    d.personnel.inspectoresHSE        = rec.count;
       });
     }
   } else {
-    // Legacy: try to find this contractor in old contractors[] by name
     const old = r.contractors?.find(c => c.name === cid);
-    if (old?.breakdown) {
-      d.personnel = {
-        mecanicos:      old.breakdown.mecanicos  ?? 0,
-        soldadores:     old.breakdown.soldadores ?? 0,
-        auxiliares:     old.breakdown.auxiliares ?? 0,
-        armadores:      old.breakdown.armadores  ?? 0,
-        inspectoresHSE: 0,
-      };
-    }
-    if (old?.equipment) {
-      d.equipment = {
-        grua:           old.equipment.grua          ?? 0,
-        generador:      old.equipment.generador     ?? 0,
-        andamios:       old.equipment.andamios      ?? 0,
-        camionGrua:     old.equipment.camionGrua    ?? 0,
-        torreGrua:      old.equipment.torreGrua     ?? 0,
-        equipoEspecial: old.equipment.equipoEspecial ?? '',
-      };
-    }
+    if (old?.breakdown) d.personnel = migratePersonnel(old.breakdown as Record<string, number>);
+    if (old?.equipment)  d.equipment  = { grua: old.equipment.grua ?? 0, generador: old.equipment.generador ?? 0, andamios: old.equipment.andamios ?? 0, camionGrua: old.equipment.camionGrua ?? 0, torreGrua: old.equipment.torreGrua ?? 0, equipoEspecial: old.equipment.equipoEspecial ?? '' };
   }
   return d;
 }
 
 function buildPrintData(r: ReportDoc): PrintReportData {
+  // Determine which contractors were enabled when the report was saved
+  const savedEnabled = (r.metadata as Record<string, unknown>).enabledContractors as string[] | undefined;
+  const enabledSet   = savedEnabled?.length ? new Set(savedEnabled) : new Set(['HL-GISAICO', 'TECNITANQUES', 'CYC']);
+  const savedAvances = (r.metadata as Record<string, unknown>).avancesEnabled as boolean | undefined;
+  const showAvances  = savedAvances !== false;
+
   const mapSection = (cfg: (typeof CONTRACTORS_CONFIG)[number]) => {
     const cid  = cfg.id as ContractorId;
     const data = resolveContractorData(r, cid);
@@ -326,19 +361,19 @@ function buildPrintData(r: ReportDoc): PrintReportData {
       activities: data.activities.split('\n').map(s => s.trim()).filter(Boolean),
       personal:   { ...data.personnel },
       equipment:  { ...data.equipment },
-      hsePermisos: [
+      hsePermisos: data.sectionsEnabled.hse ? [
         { riesgo: '🪜 Trabajo en Alturas',    estado: data.checklist.workAtHeights ? '✅ AUTORIZADO — APT FIRMADO Y VALIDADO' : '— N/A — Sin riesgo identificado' },
         { riesgo: '🔥 Trabajo en Caliente',   estado: data.checklist.hotWork       ? '✅ AUTORIZADO — APT FIRMADO Y VALIDADO' : '— N/A — Sin riesgo identificado' },
         { riesgo: '⚠️ Espacios Confinados',  estado: data.checklist.confinedSpace  ? '🔴 ACTIVO — Monitoreo atmosférico requerido' : '— N/A — Sin riesgo identificado' },
         { riesgo: '🏗️ Andamios Certificados', estado: data.checklist.scaffolding   ? '✅ AUTORIZADO — APT FIRMADO Y VALIDADO' : '— N/A — Sin riesgo identificado' },
-      ],
-      seguridad: {
+      ] : [],
+      seguridad: data.sectionsEnabled.seguridad ? {
         comentarios:         data.safetyInfo.comments,
         incidentes:          data.safetyInfo.incidents,
         cuasiAccidentes:     data.safetyInfo.nearMisses,
         observacionesEpp:    data.safetyInfo.eppObservations,
         leccionesAprendidas: data.safetyInfo.lessonsLearned,
-      },
+      } : null,
       weldingMetrics: data.weldingMetrics ?? [],
     };
   };
@@ -364,13 +399,13 @@ function buildPrintData(r: ReportDoc): PrintReportData {
     },
     condicionClimatica: r.metadata?.weather || '—',
     estadoFolio:        (r.metadata?.status || 'ANCLADO').toUpperCase(),
-    contratistas:       CONTRACTORS_CONFIG.map(mapSection),
+    contratistas:       CONTRACTORS_CONFIG.filter(c => enabledSet.has(c.id)).map(mapSection),
     evidence:           (r.evidence || []).filter(e => e.type === 'photo'),
-    adminActivities: (r.admin_activities || []).map(a => ({
+    adminActivities: showAvances ? (r.admin_activities || []).map(a => ({
       actividad:   a.name,
       porcentaje:  `${a.progress}%`,
       estado: a.progress < 30 ? '🔴 CRÍTICO' : a.progress < 70 ? '🟡 EN PROGRESO' : a.progress < 100 ? '🟢 AVANZADO' : '✅ COMPLETADO',
-    })),
+    })) : [],
   };
 }
 
@@ -392,6 +427,31 @@ export default function DailyReportsPage() {
   const activeContractorIdRef = useRef<ContractorId>('HL-GISAICO');
   useEffect(() => { activeContractorIdRef.current = activeContractorId; }, [activeContractorId]);
 
+  // ── Enabled contractors (which ones are included in this report) ──
+  const [enabledContractors, setEnabledContractors] = useState<Set<ContractorId>>(
+    () => new Set<ContractorId>(['HL-GISAICO', 'TECNITANQUES', 'CYC'])
+  );
+
+  // ── Avances global toggle ──
+  const [avancesEnabled, setAvancesEnabled] = useState(true);
+
+  const toggleContractor = (cid: ContractorId) => {
+    setEnabledContractors(prev => {
+      const next = new Set(prev);
+      if (next.has(cid)) {
+        if (next.size === 1) return prev; // al menos 1 siempre activo
+        next.delete(cid);
+        if (activeContractorIdRef.current === cid) {
+          const first = CONTRACTORS_CONFIG.find(c => next.has(c.id as ContractorId));
+          if (first) setActiveContractorId(first.id as ContractorId);
+        }
+      } else {
+        next.add(cid);
+      }
+      return next;
+    });
+  };
+
   // ── Per-contractor data ──
   const [contractorSections, setContractorSections] = useState<ContractorSections>(DEFAULT_SECTIONS());
 
@@ -412,9 +472,7 @@ export default function DailyReportsPage() {
   const [search,          setSearch]          = useState('');
   const [lastId,          setLastId]          = useState<string | null>(null);
   const [printingReport,  setPrintingReport]  = useState<ReportDoc | null>(null);
-  const [isExtractingAI,  setIsExtractingAI]  = useState(false);
 
-  const aiFileRef = useRef<HTMLInputElement>(null);
 
   // ── Derived ──
   const activeData = contractorSections[activeContractorId];
@@ -434,14 +492,19 @@ export default function DailyReportsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const anyRisk = Object.values(activeData.checklist).some(Boolean);
-  const anyRiskGlobal = CONTRACTORS_CONFIG.some(cfg =>
-    Object.values(contractorSections[cfg.id as ContractorId].checklist).some(Boolean)
-  );
+  const anyRisk = activeData.sectionsEnabled.hse && Object.values(activeData.checklist).some(Boolean);
+  const anyRiskGlobal = CONTRACTORS_CONFIG
+    .filter(cfg => enabledContractors.has(cfg.id as ContractorId))
+    .some(cfg => {
+      const d = contractorSections[cfg.id as ContractorId];
+      return d.sectionsEnabled.hse && Object.values(d.checklist).some(Boolean);
+    });
 
-  const totalPersonnelAll = CONTRACTORS_CONFIG.reduce((s, cfg) =>
-    s + Object.values(contractorSections[cfg.id as ContractorId].personnel).reduce((a, b) => a + b, 0), 0
-  );
+  const totalPersonnelAll = CONTRACTORS_CONFIG
+    .filter(cfg => enabledContractors.has(cfg.id as ContractorId))
+    .reduce((s, cfg) =>
+      s + Object.values(contractorSections[cfg.id as ContractorId].personnel).reduce((a, b) => a + b, 0), 0
+    );
 
   useEffect(() => {
     setMounted(true);
@@ -514,150 +577,6 @@ export default function DailyReportsPage() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
-  // ── AI Extraction ──
-  const handleAIExtract = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const MAX_SIZE_MB = 15;
-    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      toast({
-        variant: 'destructive',
-        title: 'Archivo muy grande',
-        description: `El documento supera los ${MAX_SIZE_MB}MB. Usa un PDF comprimido o una imagen de menor resolución.`,
-      });
-      if (aiFileRef.current) aiFileRef.current.value = '';
-      return;
-    }
-
-    try {
-      setIsExtractingAI(true);
-      toast({
-        title: '✨ Modo IA Activado',
-        description: `Analizando ${file.name}... esto puede tardar unos 15-30 segundos.`,
-      });
-
-      const reader = new FileReader();
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const result = await extractDailyReportFromPdf({ pdfDataUri: base64Data });
-
-      if (result.weather && WEATHER_OPTIONS.includes(result.weather)) {
-        setWeather(result.weather);
-      } else if (result.weather) {
-        setWeather(result.weather + ' (Aprox)');
-      }
-      if (result.reportDate) setReportDate(result.reportDate);
-
-      setContractorSections(prev => {
-        const cs = { ...prev };
-        const mapContractor = (cid: ContractorId, data: typeof result.hlGisaico) => {
-          if (!data) return;
-          const d = {
-            ...cs[cid],
-            personnel:  { ...cs[cid].personnel },
-            equipment:  { ...cs[cid].equipment },
-            lostHours:  { ...cs[cid].lostHours },
-            checklist:  { ...cs[cid].checklist },
-            safetyInfo: { ...cs[cid].safetyInfo },
-          };
-
-          if (data.activities)             d.activities                = data.activities;
-
-          if (data.mecanicos      !== undefined) d.personnel.mecanicos      = data.mecanicos;
-          if (data.soldadores     !== undefined) d.personnel.soldadores     = data.soldadores;
-          if (data.auxiliares     !== undefined) d.personnel.auxiliares     = data.auxiliares;
-          if (data.armadores      !== undefined) d.personnel.armadores      = data.armadores;
-          if (data.inspectoresHSE !== undefined) d.personnel.inspectoresHSE = data.inspectoresHSE;
-
-          if (data.grua       !== undefined) d.equipment.grua       = data.grua;
-          if (data.generador  !== undefined) d.equipment.generador  = data.generador;
-          if (data.andamios   !== undefined) d.equipment.andamios   = data.andamios;
-          if (data.camionGrua !== undefined) d.equipment.camionGrua = data.camionGrua;
-          if (data.torreGrua  !== undefined) d.equipment.torreGrua  = data.torreGrua;
-
-          if (data.malClima       !== undefined) d.lostHours.malClima       = data.malClima;
-          if (data.parosHSE       !== undefined) d.lostHours.parosHSE       = data.parosHSE;
-          if (data.fallasTecnicas !== undefined) d.lostHours.fallasTecnicas = data.fallasTecnicas;
-          if (data.charlaInfo     !== undefined) d.lostHours.charlaInfo     = data.charlaInfo;
-
-          if (data.workAtHeights !== undefined) d.checklist.workAtHeights = data.workAtHeights;
-          if (data.hotWork       !== undefined) d.checklist.hotWork       = data.hotWork;
-          if (data.confinedSpace !== undefined) d.checklist.confinedSpace = data.confinedSpace;
-          if (data.scaffolding   !== undefined) d.checklist.scaffolding   = data.scaffolding;
-
-          if (data.incidents      !== undefined) d.safetyInfo.incidents     = data.incidents;
-          if (data.nearMisses     !== undefined) d.safetyInfo.nearMisses    = data.nearMisses;
-          if (data.safetyComments)               d.safetyInfo.comments      = data.safetyComments;
-
-          cs[cid] = d;
-        };
-
-        mapContractor('HL-GISAICO',   result.hlGisaico);
-        mapContractor('TECNITANQUES', result.tecnitanques);
-        mapContractor('CYC',          result.cyc);
-
-        // Global safety notes → HL-GISAICO eppObservations
-        if (result.globalSafetyNotes) {
-          const hl = { ...cs['HL-GISAICO'], safetyInfo: { ...cs['HL-GISAICO'].safetyInfo } };
-          hl.safetyInfo.eppObservations = result.globalSafetyNotes;
-          cs['HL-GISAICO'] = hl;
-        }
-
-        return cs;
-      });
-
-      if (result.adminActivities?.length) {
-        setAdminActivities(prev => {
-          const updated = [...prev];
-          result.adminActivities!.forEach(aiAct => {
-            const idx = updated.findIndex(a => a.name.toLowerCase().includes(aiAct.name.toLowerCase()));
-            if (idx >= 0) updated[idx].progress = aiAct.progress;
-            else updated.push({ name: aiAct.name, progress: aiAct.progress });
-          });
-          return updated;
-        });
-      }
-
-      // Upload as evidence
-      const key = `${file.name}_AI_ev`;
-      setProgress(p => ({ ...p, [key]: 10 }));
-      const type = file.type.includes('pdf') ? 'pdf' : 'photo';
-      const upRes = await uploadFileToStorage(firebaseApp, file, ACTIVE_PROJECT, pct => setProgress(p => ({ ...p, [key]: 10 + Math.round(pct * 0.9) })));
-      if (upRes.success && upRes.downloadUrl) {
-        setEvidence(prev => [...prev, { type, urlOrBase64: upRes.downloadUrl!, name: file.name, uploadMethod: 'storage' }]);
-      }
-      setTimeout(() => setProgress(p => { const n = { ...p }; delete n[key]; return n; }), 2000);
-
-      const photosFound  = result.detectedPhotos?.length ?? 0;
-      const dateDetected = result.reportDate ? ` · Fecha: ${result.reportDate}` : '';
-      const photosNote   = photosFound > 0 ? ` · ${photosFound} foto(s) detectada(s)` : '';
-      toast({
-        title: '✅ Extracción IA Exitosa',
-        description: `Confianza: ${Math.round(result.confidence * 100)}%${dateDetected}${photosNote}. Verifica los campos.`,
-      });
-
-    } catch (err) {
-      console.error(err);
-      const msg = err instanceof Error ? err.message : String(err);
-      const isOverload = msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
-      toast({
-        variant: 'destructive',
-        title: isOverload ? 'Modelo IA saturado' : 'Error de IA',
-        description: isOverload
-          ? 'Gemini está con alta demanda. Intenta de nuevo en 30–60 segundos.'
-          : 'Falló la extracción. El documento puede ser ilegible o superar la capacidad del modelo.',
-      });
-    } finally {
-      setIsExtractingAI(false);
-      if (aiFileRef.current) aiFileRef.current.value = '';
-    }
-  };
-
   // ── Build Firestore payload ──
   const buildPayload = (consecutiveId: string, status: 'anchored' | 'draft' = 'anchored') => {
     const hlData = contractorSections['HL-GISAICO'];
@@ -668,8 +587,14 @@ export default function DailyReportsPage() {
       const total = Object.values(d.personnel).reduce((s, v) => s + v, 0);
       return {
         name:      cfg.id,
+        enabled:   enabledContractors.has(cfg.id as ContractorId),
         personnel: total,
-        breakdown: { mecanicos: d.personnel.mecanicos, soldadores: d.personnel.soldadores, auxiliares: d.personnel.auxiliares, armadores: d.personnel.armadores },
+        breakdown: {
+          soldadoresCalificados: d.personnel.soldadoresCalificados,
+          auxiliaresAyudantes:   d.personnel.auxiliaresAyudantes,
+          armadores:             d.personnel.armadores,
+          inspectoresHSE:        d.personnel.inspectoresHSE,
+        },
         equipment: d.equipment,
         lostHours: d.lostHours,
       };
@@ -677,34 +602,42 @@ export default function DailyReportsPage() {
 
     // Legacy recursos_frente from HL-GISAICO personnel
     const recursos_frente = [
-      { type: 'Mecánicos Armadores',    count: hlData.personnel.mecanicos },
-      { type: 'Soldadores Calificados', count: hlData.personnel.soldadores },
-      { type: 'Auxiliares / Ayudantes', count: hlData.personnel.auxiliares },
+      { type: 'Soldadores Calificados', count: hlData.personnel.soldadoresCalificados },
+      { type: 'Auxiliares / Ayudantes', count: hlData.personnel.auxiliaresAyudantes },
       { type: 'Armadores',              count: hlData.personnel.armadores },
+      { type: 'Pailero',                count: hlData.personnel.pailero },
+      { type: 'Operador Gatos',         count: hlData.personnel.operadorGatos },
+      { type: 'Andamieros',             count: hlData.personnel.andamieros },
+      { type: 'Director de Obra',       count: hlData.personnel.directorObra },
+      { type: 'Ing. Residente',         count: hlData.personnel.ingResidente },
+      { type: 'Supervisor Mecánico',    count: hlData.personnel.supervisorMecanico },
+      { type: 'Ing. QAQC',              count: hlData.personnel.ingQAQC },
       { type: 'Inspectores HSE',        count: hlData.personnel.inspectoresHSE },
     ].filter(r => r.count > 0);
 
     return {
       metadata: {
         consecutiveId,
-        date:        new Date(reportDate + 'T12:00:00').toISOString(),
+        date:               new Date(reportDate + 'T12:00:00').toISOString(),
         weather,
-        authorUid:   user!.uid,
-        authorName:  user!.displayName || user!.email || 'Ing. Certificado',
-        frente:      'HL-GISAICO',
-        proyectoRef: 'ARIS MINING — MIL24.001',
+        authorUid:          user!.uid,
+        authorName:         user!.displayName || user!.email || 'Ing. Certificado',
+        frente:             'HL-GISAICO',
+        proyectoRef:        'ARIS MINING — MIL24.001',
         status,
+        enabledContractors: [...enabledContractors],
+        avancesEnabled,
       },
       // New per-contractor data
       contractor_sections: contractorSections,
       // Legacy fields (HL-GISAICO mirrors)
-      seguridad_hse:    { ...hlData.checklist, hasActiveRisk: Object.values(hlData.checklist).some(Boolean) },
+      seguridad_hse:    { ...hlData.checklist, hasActiveRisk: hlData.sectionsEnabled.hse && Object.values(hlData.checklist).some(Boolean) },
       recursos_frente,
       activities:       hlData.activities,
-      safety_info:      hlData.safetyInfo,
+      safety_info:      hlData.sectionsEnabled.seguridad ? hlData.safetyInfo : null,
       // Global
       contractors:      contractorsLegacy,
-      admin_activities: adminActivities,
+      admin_activities: avancesEnabled ? adminActivities : [],
       evidence,
       timestamp:        serverTimestamp(),
       lastModified:     serverTimestamp(),
@@ -715,6 +648,8 @@ export default function DailyReportsPage() {
   const reset = () => {
     setContractorSections(DEFAULT_SECTIONS());
     setActiveContractorId('HL-GISAICO');
+    setEnabledContractors(new Set<ContractorId>(['HL-GISAICO', 'TECNITANQUES', 'CYC']));
+    setAvancesEnabled(true);
     setWeather('Soleado ☀️');
     setReportDate(new Date().toISOString().slice(0, 10));
     setAdminActivities(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
@@ -726,9 +661,9 @@ export default function DailyReportsPage() {
   // ── Submit ──
   const handleSubmit = async () => {
     if (!firestore || !user) return;
-    const hlActivities = contractorSections['HL-GISAICO'].activities;
-    if (!hlActivities.trim()) {
-      toast({ variant: 'destructive', title: 'CAMPOS OBLIGATORIOS', description: 'Complete al menos las Actividades de HL-GISAICO.' });
+    const hasActivities = [...enabledContractors].some(cid => contractorSections[cid].activities.trim());
+    if (!hasActivities) {
+      toast({ variant: 'destructive', title: 'CAMPOS OBLIGATORIOS', description: 'Complete al menos las Actividades de un contratista activo.' });
       return;
     }
     setSubmitting(true);
@@ -790,7 +725,7 @@ export default function DailyReportsPage() {
         contractors:   r.contractors      || [],
         safety_info:   r.safety_info,
         admin_activities:    r.admin_activities || DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })),
-        contractor_sections: r.contractor_sections,
+        contractor_sections: r.contractor_sections as DailyReportData['contractor_sections'],
       };
       await generateDailyReportExcel(data);
       toast({ title: '✅ DOSSIER EMITIDO', description: 'SGS/ISO 9001 — Listo para ARIS MINING.' });
@@ -805,12 +740,28 @@ export default function DailyReportsPage() {
     setEditing(r);
     setWeather(r.metadata.weather);
 
+    // Restore enabled contractors from metadata if present
+    const savedEnabled = (r.metadata as Record<string, unknown>).enabledContractors as string[] | undefined;
+    if (savedEnabled?.length) {
+      setEnabledContractors(new Set(savedEnabled as ContractorId[]));
+    } else {
+      setEnabledContractors(new Set<ContractorId>(['HL-GISAICO', 'TECNITANQUES', 'CYC']));
+    }
+    const savedAvances = (r.metadata as Record<string, unknown>).avancesEnabled as boolean | undefined;
+    setAvancesEnabled(savedAvances !== false);
+
     if (r.contractor_sections) {
-      // New format — load directly (with weldingMetrics migration)
+      // New format — load directly (with full field migration)
       const hydrate = (cid: string): PerContractorData => {
         const raw = r.contractor_sections![cid as ContractorId];
         if (!raw) return DEFAULT_CONTRACTOR_DATA();
-        return { ...DEFAULT_CONTRACTOR_DATA(), ...raw, weldingMetrics: (raw as PerContractorData).weldingMetrics ?? [] };
+        return {
+          ...DEFAULT_CONTRACTOR_DATA(),
+          ...raw,
+          personnel:       { ...EMPTY_PERSONNEL,          ...(raw.personnel          ?? {}) },
+          sectionsEnabled: { ...{ hse: true, seguridad: true }, ...(raw.sectionsEnabled ?? {}) },
+          weldingMetrics:  (raw as PerContractorData).weldingMetrics ?? [],
+        };
       };
       setContractorSections({
         'HL-GISAICO':   hydrate('HL-GISAICO'),
@@ -824,7 +775,7 @@ export default function DailyReportsPage() {
       hlData.checklist  = { workAtHeights: !!r.seguridad_hse?.workAtHeights, hotWork: !!r.seguridad_hse?.hotWork, confinedSpace: !!r.seguridad_hse?.confinedSpace, scaffolding: !!r.seguridad_hse?.scaffolding };
       hlData.safetyInfo = r.safety_info ? { ...r.safety_info } : { ...EMPTY_SAFETY };
       const old = r.contractors?.find(c => c.name === 'HL-GISAICO');
-      if (old?.breakdown) hlData.personnel = { mecanicos: old.breakdown.mecanicos ?? 0, soldadores: old.breakdown.soldadores ?? 0, auxiliares: old.breakdown.auxiliares ?? 0, armadores: old.breakdown.armadores ?? 0, inspectoresHSE: 0 };
+      if (old?.breakdown) hlData.personnel = { ...EMPTY_PERSONNEL, soldadoresCalificados: (old.breakdown as Record<string, number>).soldadores ?? 0, auxiliaresAyudantes: (old.breakdown as Record<string, number>).auxiliares ?? 0, armadores: (old.breakdown as Record<string, number>).armadores ?? 0 };
       if (old?.equipment) hlData.equipment = { grua: old.equipment.grua ?? 0, generador: old.equipment.generador ?? 0, andamios: old.equipment.andamios ?? 0, camionGrua: old.equipment.camionGrua ?? 0, torreGrua: old.equipment.torreGrua ?? 0, equipoEspecial: old.equipment.equipoEspecial ?? '' };
       if (old?.lostHours) hlData.lostHours = { malClima: old.lostHours.malClima ?? 0, parosHSE: old.lostHours.parosHSE ?? 0, fallasTecnicas: old.lostHours.fallasTecnicas ?? 0, charlaInfo: old.lostHours.charlaInfo ?? 0 };
 
@@ -833,7 +784,7 @@ export default function DailyReportsPage() {
         const d  = DEFAULT_CONTRACTOR_DATA();
         const oc = r.contractors?.find(c => c.name === name);
         if (!oc) return d;
-        if (oc.breakdown) d.personnel = { mecanicos: oc.breakdown.mecanicos ?? 0, soldadores: oc.breakdown.soldadores ?? 0, auxiliares: oc.breakdown.auxiliares ?? 0, armadores: oc.breakdown.armadores ?? 0, inspectoresHSE: 0 };
+        if (oc.breakdown) d.personnel = { ...EMPTY_PERSONNEL, soldadoresCalificados: (oc.breakdown as Record<string, number>).soldadores ?? 0, auxiliaresAyudantes: (oc.breakdown as Record<string, number>).auxiliares ?? 0, armadores: (oc.breakdown as Record<string, number>).armadores ?? 0 };
         if (oc.equipment) d.equipment = { grua: oc.equipment.grua ?? 0, generador: oc.equipment.generador ?? 0, andamios: oc.equipment.andamios ?? 0, camionGrua: oc.equipment.camionGrua ?? 0, torreGrua: oc.equipment.torreGrua ?? 0, equipoEspecial: oc.equipment.equipoEspecial ?? '' };
         if (oc.lostHours) d.lostHours = { malClima: oc.lostHours.malClima ?? 0, parosHSE: oc.lostHours.parosHSE ?? 0, fallasTecnicas: oc.lostHours.fallasTecnicas ?? 0, charlaInfo: oc.lostHours.charlaInfo ?? 0 };
         return d;
@@ -947,48 +898,87 @@ export default function DailyReportsPage() {
               <div className="px-5 pt-4 pb-3 border-b border-primary/10">
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
-                    <Building2 className="w-3 h-3" /> Contratista Activo
+                    <Building2 className="w-3 h-3" /> Contratistas en Reporte
                   </Label>
                   <span className="text-[9px] font-mono text-primary/30">
                     👷 {totalPersonnelAll} total en campo
                   </span>
                 </div>
+                <p className="text-[8px] font-mono text-primary/30 mb-2">
+                  Activa/desactiva contratistas · Haz clic en la tarjeta para editar
+                </p>
                 <div className="grid grid-cols-3 gap-2">
                   {CONTRACTORS_CONFIG.map(cfg => {
-                    const cid   = cfg.id as ContractorId;
-                    const total = Object.values(contractorSections[cid].personnel).reduce((s, v) => s + v, 0);
-                    const isActive = activeContractorId === cid;
+                    const cid      = cfg.id as ContractorId;
+                    const total    = Object.values(contractorSections[cid].personnel).reduce((s, v) => s + v, 0);
+                    const isActive  = activeContractorId === cid;
+                    const isEnabled = enabledContractors.has(cid);
                     return (
-                      <button
-                        key={cid}
-                        onClick={() => setActiveContractorId(cid)}
-                        className={`relative py-2.5 px-3 rounded-lg border text-left transition-all ${isActive ? cfg.activeCls : cfg.inactiveCls}`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm leading-none">{cfg.icon}</span>
-                          <span className="text-[9px] font-mono font-bold uppercase tracking-wider leading-tight">{cfg.label}</span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between">
-                          <span className={`text-[7px] font-mono uppercase opacity-60 ${isActive ? '' : 'text-primary/30'}`}>
-                            {cfg.sistema}
-                          </span>
-                          {total > 0 && (
-                            <span className="text-[8px] font-mono font-bold" style={{ color: cfg.color }}>
-                              {total}p
+                      <div key={cid} className="relative flex flex-col">
+                        {/* Toggle enable/disable button */}
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleContractor(cid); }}
+                          title={isEnabled ? `Desactivar ${cfg.label} del reporte` : `Activar ${cfg.label} en el reporte`}
+                          className={`absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full border-2 flex items-center justify-center text-[8px] font-bold transition-all shadow-md ${
+                            isEnabled
+                              ? 'bg-green-500 border-green-400 text-black'
+                              : 'bg-[#0B1018] border-primary/30 text-primary/30 hover:border-primary/60'
+                          }`}
+                        >
+                          {isEnabled ? '✓' : '○'}
+                        </button>
+                        {/* Selector card */}
+                        <button
+                          onClick={() => setActiveContractorId(cid)}
+                          className={`relative py-2.5 px-3 rounded-lg border text-left transition-all w-full ${
+                            !isEnabled
+                              ? 'bg-primary/5 border-primary/10 text-primary/25 opacity-50'
+                              : isActive
+                                ? cfg.activeCls
+                                : cfg.inactiveCls
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm leading-none">{cfg.icon}</span>
+                            <span className="text-[9px] font-mono font-bold uppercase tracking-wider leading-tight">{cfg.label}</span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between">
+                            <span className={`text-[7px] font-mono uppercase opacity-60 ${isActive && isEnabled ? '' : 'text-primary/30'}`}>
+                              {cfg.sistema}
                             </span>
+                            {total > 0 && isEnabled && (
+                              <span className="text-[8px] font-mono font-bold" style={{ color: cfg.color }}>
+                                {total}p
+                              </span>
+                            )}
+                          </div>
+                          {isActive && isEnabled && (
+                            <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.color }} />
                           )}
-                        </div>
-                        {isActive && (
-                          <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.color }} />
-                        )}
-                      </button>
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
                 {/* Active contractor context banner */}
-                <div className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded bg-primary/5 border border-primary/10">
+                <div className="mt-3 flex items-center gap-2 px-2 py-1.5 rounded bg-primary/5 border border-primary/10">
                   <span className="text-sm">{activeCfg.icon}</span>
                   <p className="text-[8px] font-mono text-primary/50">{activeCfg.description}</p>
+                  {!enabledContractors.has(activeContractorId) && (
+                    <span className="ml-auto text-[8px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                      ⚠ Inactivo en reporte
+                    </span>
+                  )}
+                </div>
+                {/* Enabled contractors chips */}
+                <div className="mt-2 flex gap-1.5 flex-wrap">
+                  <span className="text-[8px] font-mono text-primary/30">En reporte:</span>
+                  {CONTRACTORS_CONFIG.filter(c => enabledContractors.has(c.id as ContractorId)).map(c => (
+                    <span key={c.id} className="text-[8px] font-mono px-1.5 py-0.5 rounded-full border"
+                      style={{ color: c.color, borderColor: `${c.color}50`, backgroundColor: `${c.color}12` }}>
+                      {c.icon} {c.label}
+                    </span>
+                  ))}
                 </div>
               </div>
 
@@ -1182,7 +1172,7 @@ export default function DailyReportsPage() {
                               {(() => {
                                 const totalMl   = activeData.weldingMetrics.reduce((s, r) => s + r.metrajeMl, 0);
                                 const totalSold = activeData.weldingMetrics.reduce((s, r) => s + r.soldadores, 0);
-                                const decl      = activeData.personnel.soldadores;
+                                const decl      = activeData.personnel.soldadoresCalificados;
                                 const match     = totalSold === decl;
                                 return (
                                   <div
@@ -1209,7 +1199,7 @@ export default function DailyReportsPage() {
                             {/* Validation warning */}
                             {(() => {
                               const totalSold = activeData.weldingMetrics.reduce((s, r) => s + r.soldadores, 0);
-                              const decl      = activeData.personnel.soldadores;
+                              const decl      = activeData.personnel.soldadoresCalificados;
                               if (totalSold === decl) return null;
                               return (
                                 <div className="flex items-start gap-2 px-2.5 py-2 rounded border border-amber-500/30 bg-amber-500/5">
@@ -1244,37 +1234,71 @@ export default function DailyReportsPage() {
                 {/* ── TAB: HSE (per contractor) ── */}
                 {tab === 'hse' && (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-base">{activeCfg.icon}</span>
-                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: activeCfg.color }}>
-                        Permisos de Trabajo — {activeContractorId}
-                      </span>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{activeCfg.icon}</span>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: activeCfg.color }}>
+                          HSE — {activeContractorId}
+                        </span>
+                      </div>
+                      {/* Section toggle */}
+                      <button
+                        onClick={() => updateSection('sectionsEnabled', { ...activeData.sectionsEnabled, hse: !activeData.sectionsEnabled.hse })}
+                        className={`flex items-center gap-1.5 text-[8px] font-mono px-2.5 py-1 rounded-full border transition-all ${
+                          activeData.sectionsEnabled.hse
+                            ? 'bg-green-500/10 border-green-500/40 text-green-400 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
+                            : 'bg-primary/5 border-primary/20 text-primary/40 hover:border-green-500/30 hover:text-green-400'
+                        }`}
+                      >
+                        {activeData.sectionsEnabled.hse ? '● ACTIVO' : '○ INACTIVO'}
+                      </button>
                     </div>
-                    {(Object.entries(HSE_CONFIG) as [HSEKey, typeof HSE_CONFIG.workAtHeights][]).map(([key, cfg]) => (
-                      <div key={key}
-                        className={`flex items-center justify-between p-3 rounded-lg border transition-all ${activeData.checklist[key] ? cfg.bg : 'bg-primary/5 border-primary/10'}`}>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl">{cfg.icon}</span>
-                          <div>
-                            <p className="text-xs font-mono font-bold uppercase text-primary/80">{cfg.label}</p>
-                            <p className="text-[9px] text-primary/40 font-mono">
-                              {activeData.checklist[key] ? '⚡ Permiso Activo — APT Requerido' : 'Sin riesgo identificado'}
+
+                    {!activeData.sectionsEnabled.hse ? (
+                      <div className="border border-dashed border-primary/20 rounded-lg p-6 text-center space-y-3">
+                        <Shield className="w-8 h-8 text-primary/20 mx-auto" />
+                        <p className="text-[10px] font-mono text-primary/40 uppercase">
+                          Sección HSE desactivada para {activeContractorId}
+                        </p>
+                        <p className="text-[9px] font-mono text-primary/25">
+                          No se incluirán permisos de trabajo en el reporte
+                        </p>
+                        <button
+                          onClick={() => updateSection('sectionsEnabled', { ...activeData.sectionsEnabled, hse: true })}
+                          className="mx-auto flex items-center gap-1.5 text-[9px] font-mono px-3 py-1.5 rounded border border-green-500/40 text-green-400 bg-green-500/10 hover:bg-green-500/20 transition-all"
+                        >
+                          <Shield className="w-3 h-3" /> Activar HSE para {activeContractorId}
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {(Object.entries(HSE_CONFIG) as [HSEKey, typeof HSE_CONFIG.workAtHeights][]).map(([key, cfg]) => (
+                          <div key={key}
+                            className={`flex items-center justify-between p-3 rounded-lg border transition-all ${activeData.checklist[key] ? cfg.bg : 'bg-primary/5 border-primary/10'}`}>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xl">{cfg.icon}</span>
+                              <div>
+                                <p className="text-xs font-mono font-bold uppercase text-primary/80">{cfg.label}</p>
+                                <p className="text-[9px] text-primary/40 font-mono">
+                                  {activeData.checklist[key] ? '⚡ Permiso Activo — APT Requerido' : 'Sin riesgo identificado'}
+                                </p>
+                              </div>
+                            </div>
+                            <Switch
+                              checked={activeData.checklist[key]}
+                              onCheckedChange={c => updateSection('checklist', { ...activeData.checklist, [key]: c })}
+                              className={activeData.checklist[key] ? 'data-[state=checked]:bg-amber-500' : ''}
+                            />
+                          </div>
+                        ))}
+                        {anyRisk && (
+                          <div className="bg-red-500/5 border border-red-500/20 rounded p-2.5 text-center">
+                            <p className="text-[10px] font-mono text-red-400 uppercase">
+                              🚨 {(Object.values(activeData.checklist) as boolean[]).filter(Boolean).length} Permiso(s) Activo(s) — {activeContractorId}
                             </p>
                           </div>
-                        </div>
-                        <Switch
-                          checked={activeData.checklist[key]}
-                          onCheckedChange={c => updateSection('checklist', { ...activeData.checklist, [key]: c })}
-                          className={activeData.checklist[key] ? 'data-[state=checked]:bg-amber-500' : ''}
-                        />
-                      </div>
-                    ))}
-                    {anyRisk && (
-                      <div className="bg-red-500/5 border border-red-500/20 rounded p-2.5 text-center">
-                        <p className="text-[10px] font-mono text-red-400 uppercase">
-                          🚨 {(Object.values(activeData.checklist) as boolean[]).filter(Boolean).length} Permiso(s) Activo(s) — {activeContractorId}
-                        </p>
-                      </div>
+                        )}
+                      </>
                     )}
                     <button onClick={() => setTab('recursos')}
                       className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
@@ -1293,57 +1317,67 @@ export default function DailyReportsPage() {
                       </span>
                     </div>
 
-                    <div className="space-y-2">
-                      {([
-                        ['mecanicos',      'Mecánicos Armadores',    '🔧'],
-                        ['soldadores',     'Soldadores Calificados', '🔥'],
-                        ['auxiliares',     'Auxiliares / Ayudantes', '👷'],
-                        ['armadores',      'Armadores Estructurales','🏗️'],
-                        ['inspectoresHSE', 'Inspectores HSE',        '⛑️'],
-                      ] as [keyof ContractorPersonnel, string, string][]).map(([field, label, icon]) => (
-                        <div key={field}
-                          className="flex items-center gap-3 bg-primary/5 border border-primary/10 rounded-lg px-3 py-2.5 group hover:border-primary/20 transition-all">
-                          <span className="text-base w-6 text-center">{icon}</span>
-                          <span className="flex-1 text-[10px] font-mono text-primary/70">{label}</span>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => updateSection('personnel', { ...activeData.personnel, [field]: Math.max(0, activeData.personnel[field] - 1) })}
-                              className="w-6 h-6 rounded bg-primary/10 text-primary/60 text-xs font-bold hover:bg-primary/20 transition-colors"
-                            >−</button>
-                            <input
-                              type="number" min="0"
-                              value={activeData.personnel[field]}
-                              onChange={e => updateSection('personnel', { ...activeData.personnel, [field]: Math.max(0, parseInt(e.target.value) || 0) })}
-                              className="w-12 bg-transparent text-[13px] font-mono font-bold text-center outline-none"
-                              style={{ color: activeCfg.color }}
-                            />
-                            <button
-                              onClick={() => updateSection('personnel', { ...activeData.personnel, [field]: activeData.personnel[field] + 1 })}
-                              className="w-6 h-6 rounded bg-primary/10 text-primary/60 text-xs font-bold hover:bg-primary/20 transition-colors"
-                            >+</button>
-                          </div>
+                    {/* Personnel fields — 17 roles for HL-GISAICO + TECNITANQUES, 11 for CYC */}
+                    {(() => {
+                      const fields = activeContractorId === 'CYC' ? PERSONNEL_FIELDS_CYC : PERSONNEL_FIELDS_FULL;
+                      return (
+                        <div className="space-y-1.5">
+                          {fields.map(([field, label, icon]) => (
+                            <div key={field}
+                              className="flex items-center gap-3 bg-primary/5 border border-primary/10 rounded-lg px-3 py-2 group hover:border-primary/20 transition-all">
+                              <span className="text-sm w-6 text-center leading-none">{icon}</span>
+                              <span className="flex-1 text-[10px] font-mono text-primary/70">{label}</span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => updateSection('personnel', { ...activeData.personnel, [field]: Math.max(0, activeData.personnel[field] - 1) })}
+                                  className="w-6 h-6 rounded bg-primary/10 text-primary/60 text-xs font-bold hover:bg-primary/20 transition-colors"
+                                >−</button>
+                                <input
+                                  type="number" min="0"
+                                  value={activeData.personnel[field] || ''}
+                                  placeholder="0"
+                                  onChange={e => updateSection('personnel', { ...activeData.personnel, [field]: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-10 bg-transparent text-[13px] font-mono font-bold text-center outline-none"
+                                  style={{ color: activeCfg.color }}
+                                />
+                                <button
+                                  onClick={() => updateSection('personnel', { ...activeData.personnel, [field]: activeData.personnel[field] + 1 })}
+                                  className="w-6 h-6 rounded bg-primary/10 text-primary/60 text-xs font-bold hover:bg-primary/20 transition-colors"
+                                >+</button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })()}
 
                     {/* Personnel summary */}
-                    <div className="rounded-lg border p-3 space-y-1.5" style={{ borderColor: `${activeCfg.color}30`, backgroundColor: `${activeCfg.color}08` }}>
-                      <p className="text-[9px] font-mono uppercase tracking-wider" style={{ color: `${activeCfg.color}99` }}>
-                        📊 Resumen Personal — {activeContractorId}
-                      </p>
-                      {(Object.entries(activeData.personnel) as [keyof ContractorPersonnel, number][]).filter(([, v]) => v > 0).map(([k, v]) => (
-                        <div key={k} className="flex justify-between text-[9px] font-mono">
-                          <span className="text-primary/50">{k}</span>
-                          <span className="font-bold" style={{ color: activeCfg.color }}>{v} pers.</span>
+                    {(() => {
+                      const fields = activeContractorId === 'CYC' ? PERSONNEL_FIELDS_CYC : PERSONNEL_FIELDS_FULL;
+                      const fieldMap = Object.fromEntries(fields.map(([f, l]) => [f, l]));
+                      const nonZero = fields.filter(([f]) => activeData.personnel[f] > 0);
+                      return (
+                        <div className="rounded-lg border p-3 space-y-1" style={{ borderColor: `${activeCfg.color}30`, backgroundColor: `${activeCfg.color}08` }}>
+                          <p className="text-[9px] font-mono uppercase tracking-wider mb-1.5" style={{ color: `${activeCfg.color}99` }}>
+                            📊 Resumen Personal — {activeContractorId}
+                          </p>
+                          {nonZero.length === 0 ? (
+                            <p className="text-[9px] font-mono text-primary/25">Sin personal registrado</p>
+                          ) : nonZero.map(([f, , icon]) => (
+                            <div key={f} className="flex justify-between text-[9px] font-mono">
+                              <span className="text-primary/50">{icon} {fieldMap[f]}</span>
+                              <span className="font-bold" style={{ color: activeCfg.color }}>{activeData.personnel[f]} pers.</span>
+                            </div>
+                          ))}
+                          <div className="border-t pt-1.5 flex justify-between text-[10px] font-bold font-mono" style={{ borderColor: `${activeCfg.color}20` }}>
+                            <span className="text-primary/60">TOTAL {activeContractorId}</span>
+                            <span style={{ color: activeCfg.color }}>
+                              {Object.values(activeData.personnel).reduce((s, v) => s + v, 0)} pers.
+                            </span>
+                          </div>
                         </div>
-                      ))}
-                      <div className="border-t pt-1.5 flex justify-between text-[10px] font-bold font-mono" style={{ borderColor: `${activeCfg.color}20` }}>
-                        <span className="text-primary/60">TOTAL {activeContractorId}</span>
-                        <span style={{ color: activeCfg.color }}>
-                          {Object.values(activeData.personnel).reduce((s, v) => s + v, 0)} pers.
-                        </span>
-                      </div>
-                    </div>
+                      );
+                    })()}
 
                     {/* Global summary */}
                     <div className="bg-primary/5 border border-primary/10 rounded-lg p-3">
@@ -1465,69 +1499,102 @@ export default function DailyReportsPage() {
                 {/* ── TAB: SEGURIDAD (per contractor) ── */}
                 {tab === 'seguridad' && (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-base">{activeCfg.icon}</span>
-                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: activeCfg.color }}>
-                        Seguridad y MA — {activeContractorId}
-                      </span>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{activeCfg.icon}</span>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: activeCfg.color }}>
+                          Seguridad — {activeContractorId}
+                        </span>
+                      </div>
+                      {/* Section toggle */}
+                      <button
+                        onClick={() => updateSection('sectionsEnabled', { ...activeData.sectionsEnabled, seguridad: !activeData.sectionsEnabled.seguridad })}
+                        className={`flex items-center gap-1.5 text-[8px] font-mono px-2.5 py-1 rounded-full border transition-all ${
+                          activeData.sectionsEnabled.seguridad
+                            ? 'bg-green-500/10 border-green-500/40 text-green-400 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
+                            : 'bg-primary/5 border-primary/20 text-primary/40 hover:border-green-500/30 hover:text-green-400'
+                        }`}
+                      >
+                        {activeData.sectionsEnabled.seguridad ? '● ACTIVO' : '○ INACTIVO'}
+                      </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3 space-y-2">
-                        <p className="text-[9px] font-mono text-red-400/70 uppercase tracking-wider flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> Incidentes
+                    {!activeData.sectionsEnabled.seguridad ? (
+                      <div className="border border-dashed border-primary/20 rounded-lg p-6 text-center space-y-3">
+                        <HardHat className="w-8 h-8 text-primary/20 mx-auto" />
+                        <p className="text-[10px] font-mono text-primary/40 uppercase">
+                          Sección Seguridad desactivada para {activeContractorId}
                         </p>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, incidents: Math.max(0, activeData.safetyInfo.incidents - 1) })} className="w-6 h-6 rounded bg-red-500/10 text-red-400 text-xs font-bold hover:bg-red-500/20">-</button>
-                          <span className="flex-1 text-center text-lg font-bold font-mono text-red-400">{activeData.safetyInfo.incidents}</span>
-                          <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, incidents: activeData.safetyInfo.incidents + 1 })} className="w-6 h-6 rounded bg-red-500/10 text-red-400 text-xs font-bold hover:bg-red-500/20">+</button>
-                        </div>
-                      </div>
-                      <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-2">
-                        <p className="text-[9px] font-mono text-amber-400/70 uppercase tracking-wider flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3" /> Near Miss
+                        <p className="text-[9px] font-mono text-primary/25">
+                          No se incluirán datos de seguridad de este contratista
                         </p>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, nearMisses: Math.max(0, activeData.safetyInfo.nearMisses - 1) })} className="w-6 h-6 rounded bg-amber-500/10 text-amber-400 text-xs font-bold hover:bg-amber-500/20">-</button>
-                          <span className="flex-1 text-center text-lg font-bold font-mono text-amber-400">{activeData.safetyInfo.nearMisses}</span>
-                          <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, nearMisses: activeData.safetyInfo.nearMisses + 1 })} className="w-6 h-6 rounded bg-amber-500/10 text-amber-400 text-xs font-bold hover:bg-amber-500/20">+</button>
-                        </div>
+                        <button
+                          onClick={() => updateSection('sectionsEnabled', { ...activeData.sectionsEnabled, seguridad: true })}
+                          className="mx-auto flex items-center gap-1.5 text-[9px] font-mono px-3 py-1.5 rounded border border-green-500/40 text-green-400 bg-green-500/10 hover:bg-green-500/20 transition-all"
+                        >
+                          <HardHat className="w-3 h-3" /> Activar Seguridad para {activeContractorId}
+                        </button>
                       </div>
-                    </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3 space-y-2">
+                            <p className="text-[9px] font-mono text-red-400/70 uppercase tracking-wider flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> Incidentes
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, incidents: Math.max(0, activeData.safetyInfo.incidents - 1) })} className="w-6 h-6 rounded bg-red-500/10 text-red-400 text-xs font-bold hover:bg-red-500/20">-</button>
+                              <span className="flex-1 text-center text-lg font-bold font-mono text-red-400">{activeData.safetyInfo.incidents}</span>
+                              <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, incidents: activeData.safetyInfo.incidents + 1 })} className="w-6 h-6 rounded bg-red-500/10 text-red-400 text-xs font-bold hover:bg-red-500/20">+</button>
+                            </div>
+                          </div>
+                          <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-2">
+                            <p className="text-[9px] font-mono text-amber-400/70 uppercase tracking-wider flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" /> Near Miss
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, nearMisses: Math.max(0, activeData.safetyInfo.nearMisses - 1) })} className="w-6 h-6 rounded bg-amber-500/10 text-amber-400 text-xs font-bold hover:bg-amber-500/20">-</button>
+                              <span className="flex-1 text-center text-lg font-bold font-mono text-amber-400">{activeData.safetyInfo.nearMisses}</span>
+                              <button onClick={() => updateSection('safetyInfo', { ...activeData.safetyInfo, nearMisses: activeData.safetyInfo.nearMisses + 1 })} className="w-6 h-6 rounded bg-amber-500/10 text-amber-400 text-xs font-bold hover:bg-amber-500/20">+</button>
+                            </div>
+                          </div>
+                        </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
-                        <MessageSquare className="w-3 h-3" /> Observaciones de Seguridad
-                      </Label>
-                      <Textarea
-                        value={activeData.safetyInfo.comments}
-                        onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, comments: e.target.value })}
-                        placeholder="Desempeño en seguridad, condiciones del sitio, medidas correctivas…"
-                        className="bg-primary/5 border-amber-500/20 text-xs min-h-[90px] resize-none font-mono leading-relaxed"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
-                        <HardHat className="w-3 h-3" /> Observaciones EPP
-                      </Label>
-                      <Textarea
-                        value={activeData.safetyInfo.eppObservations}
-                        onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, eppObservations: e.target.value })}
-                        placeholder="Estado y cumplimiento del EPP en campo…"
-                        className="bg-primary/5 border-primary/10 text-xs min-h-[60px] resize-none font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
-                        <BookOpen className="w-3 h-3" /> Lecciones Aprendidas HSE
-                      </Label>
-                      <Textarea
-                        value={activeData.safetyInfo.lessonsLearned}
-                        onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, lessonsLearned: e.target.value })}
-                        placeholder="Lecciones aprendidas, puntos de mejora, buenas prácticas…"
-                        className="bg-primary/5 border-cyan-500/20 text-xs min-h-[60px] resize-none font-mono"
-                      />
-                    </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                            <MessageSquare className="w-3 h-3" /> Observaciones de Seguridad
+                          </Label>
+                          <Textarea
+                            value={activeData.safetyInfo.comments}
+                            onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, comments: e.target.value })}
+                            placeholder="Desempeño en seguridad, condiciones del sitio, medidas correctivas…"
+                            className="bg-primary/5 border-amber-500/20 text-xs min-h-[90px] resize-none font-mono leading-relaxed"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                            <HardHat className="w-3 h-3" /> Observaciones EPP
+                          </Label>
+                          <Textarea
+                            value={activeData.safetyInfo.eppObservations}
+                            onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, eppObservations: e.target.value })}
+                            placeholder="Estado y cumplimiento del EPP en campo…"
+                            className="bg-primary/5 border-primary/10 text-xs min-h-[60px] resize-none font-mono"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                            <BookOpen className="w-3 h-3" /> Lecciones Aprendidas HSE
+                          </Label>
+                          <Textarea
+                            value={activeData.safetyInfo.lessonsLearned}
+                            onChange={e => updateSection('safetyInfo', { ...activeData.safetyInfo, lessonsLearned: e.target.value })}
+                            placeholder="Lecciones aprendidas, puntos de mejora, buenas prácticas…"
+                            className="bg-primary/5 border-cyan-500/20 text-xs min-h-[60px] resize-none font-mono"
+                          />
+                        </div>
+                      </>
+                    )}
 
                     <button onClick={() => setTab('admin')}
                       className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
@@ -1541,66 +1608,101 @@ export default function DailyReportsPage() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
-                        <TrendingUp className="w-3 h-3" /> Actividades Administrativas — Global
+                        <TrendingUp className="w-3 h-3" /> Avances Administrativos — Global
                       </Label>
-                      <Button variant="ghost" size="sm"
-                        onClick={() => setAdminActivities(p => [...p, { name: '', progress: 0 }])}
-                        className="h-6 px-2 text-[10px] bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 font-mono">
-                        <Plus className="w-3 h-3 mr-1" />Nueva
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {/* Global avances toggle */}
+                        <button
+                          onClick={() => setAvancesEnabled(v => !v)}
+                          className={`flex items-center gap-1 text-[8px] font-mono px-2 py-1 rounded-full border transition-all ${
+                            avancesEnabled
+                              ? 'bg-green-500/10 border-green-500/40 text-green-400 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
+                              : 'bg-primary/5 border-primary/20 text-primary/40 hover:border-green-500/30 hover:text-green-400'
+                          }`}
+                        >
+                          {avancesEnabled ? '● ACTIVO' : '○ INACTIVO'}
+                        </button>
+                        {avancesEnabled && (
+                          <Button variant="ghost" size="sm"
+                            onClick={() => setAdminActivities(p => [...p, { name: '', progress: 0 }])}
+                            className="h-6 px-2 text-[10px] bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 font-mono">
+                            <Plus className="w-3 h-3 mr-1" />Nueva
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="space-y-3">
-                      {adminActivities.map((act, i) => {
-                        const pct = act.progress;
-                        const barColor = pct < 30 ? '#EF5350' : pct < 70 ? '#FFB300' : '#66BB6A';
-                        return (
-                          <div key={i} className="group space-y-1.5 bg-primary/[0.03] border border-primary/10 rounded-lg p-3">
-                            <div className="flex items-center gap-2">
-                              <input
-                                value={act.name}
-                                onChange={e => { const n = [...adminActivities]; n[i] = { ...n[i], name: e.target.value }; setAdminActivities(n); }}
-                                placeholder="Nombre de la actividad..."
-                                className="flex-1 bg-transparent text-[11px] font-mono text-primary/80 placeholder-primary/25 outline-none"
-                              />
-                              <button onClick={() => setAdminActivities(p => p.filter((_, j) => j !== i))}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500/30 hover:text-red-500">
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <div className="flex-1 h-2 bg-primary/10 rounded-full overflow-hidden">
-                                <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: barColor }} />
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="range" min="0" max="100" step="5" value={pct}
-                                  onChange={e => { const n = [...adminActivities]; n[i] = { ...n[i], progress: parseInt(e.target.value) }; setAdminActivities(n); }}
-                                  className="w-20 h-1.5 accent-cyan-500"
-                                />
-                                <div className="flex items-center gap-0.5 w-12 justify-end">
-                                  <span className="text-[11px] font-bold font-mono" style={{ color: barColor }}>{pct}</span>
-                                  <Percent className="w-2.5 h-2.5" style={{ color: barColor }} />
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {adminActivities.length > 0 && (
-                      <div className="bg-primary/5 border border-primary/10 rounded-lg p-3">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[9px] font-mono text-primary/40 uppercase">Avance Promedio</span>
-                          <span className="text-[13px] font-bold font-mono text-cyan-400">
-                            {Math.round(adminActivities.reduce((s, a) => s + a.progress, 0) / adminActivities.length)}%
-                          </span>
-                        </div>
-                        <div className="mt-2 h-1.5 bg-primary/10 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all"
-                            style={{ width: `${Math.round(adminActivities.reduce((s, a) => s + a.progress, 0) / adminActivities.length)}%` }} />
-                        </div>
+
+                    {!avancesEnabled && (
+                      <div className="border border-dashed border-primary/20 rounded-lg p-6 text-center space-y-3">
+                        <TrendingUp className="w-8 h-8 text-primary/20 mx-auto" />
+                        <p className="text-[10px] font-mono text-primary/40 uppercase">Sección Avances desactivada</p>
+                        <p className="text-[9px] font-mono text-primary/25">No se incluirán avances administrativos en el reporte</p>
+                        <button
+                          onClick={() => setAvancesEnabled(true)}
+                          className="mx-auto flex items-center gap-1.5 text-[9px] font-mono px-3 py-1.5 rounded border border-green-500/40 text-green-400 bg-green-500/10 hover:bg-green-500/20 transition-all"
+                        >
+                          <TrendingUp className="w-3 h-3" /> Activar Avances
+                        </button>
                       </div>
                     )}
+
+                    {avancesEnabled && (
+                      <>
+                        <div className="space-y-3">
+                          {adminActivities.map((act, i) => {
+                            const pct = act.progress;
+                            const barColor = pct < 30 ? '#EF5350' : pct < 70 ? '#FFB300' : '#66BB6A';
+                            return (
+                              <div key={i} className="group space-y-1.5 bg-primary/[0.03] border border-primary/10 rounded-lg p-3">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    value={act.name}
+                                    onChange={e => { const n = [...adminActivities]; n[i] = { ...n[i], name: e.target.value }; setAdminActivities(n); }}
+                                    placeholder="Nombre de la actividad..."
+                                    className="flex-1 bg-transparent text-[11px] font-mono text-primary/80 placeholder-primary/25 outline-none"
+                                  />
+                                  <button onClick={() => setAdminActivities(p => p.filter((_, j) => j !== i))}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500/30 hover:text-red-500">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="flex-1 h-2 bg-primary/10 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="range" min="0" max="100" step="5" value={pct}
+                                      onChange={e => { const n = [...adminActivities]; n[i] = { ...n[i], progress: parseInt(e.target.value) }; setAdminActivities(n); }}
+                                      className="w-20 h-1.5 accent-cyan-500"
+                                    />
+                                    <div className="flex items-center gap-0.5 w-12 justify-end">
+                                      <span className="text-[11px] font-bold font-mono" style={{ color: barColor }}>{pct}</span>
+                                      <Percent className="w-2.5 h-2.5" style={{ color: barColor }} />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {adminActivities.length > 0 && (
+                          <div className="bg-primary/5 border border-primary/10 rounded-lg p-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[9px] font-mono text-primary/40 uppercase">Avance Promedio</span>
+                              <span className="text-[13px] font-bold font-mono text-cyan-400">
+                                {Math.round(adminActivities.reduce((s, a) => s + a.progress, 0) / adminActivities.length)}%
+                              </span>
+                            </div>
+                            <div className="mt-2 h-1.5 bg-primary/10 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all"
+                                style={{ width: `${Math.round(adminActivities.reduce((s, a) => s + a.progress, 0) / adminActivities.length)}%` }} />
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
                     <button onClick={() => setTab('evidencia')}
                       className="w-full py-2 rounded border border-primary/15 text-[10px] font-mono text-primary/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-all uppercase tracking-wider">
                       Siguiente: Bóveda de Evidencia →
@@ -1620,23 +1722,6 @@ export default function DailyReportsPage() {
                         <p className="text-[9px] font-mono text-primary/25 mt-1">Evidencia manual (Upload)</p>
                       </div>
 
-                      <div className="border-2 border-dashed border-amber-500/30 bg-amber-500/5 rounded-lg p-6 text-center hover:bg-amber-500/10 hover:border-amber-400/50 transition-all cursor-pointer group flex flex-col justify-center h-full relative"
-                        onClick={() => !isExtractingAI && aiFileRef.current?.click()}>
-                        <input type="file" accept="image/*,.pdf" ref={aiFileRef} className="hidden" onChange={handleAIExtract} disabled={isExtractingAI} />
-                        {isExtractingAI ? (
-                          <div className="flex flex-col items-center justify-center">
-                            <Loader2 className="w-7 h-7 text-amber-500 mx-auto mb-2 animate-spin" />
-                            <p className="text-[10px] font-mono text-amber-500 uppercase tracking-wider font-bold">Analizando PDF...</p>
-                          </div>
-                        ) : (
-                          <>
-                            <Sparkles className="w-7 h-7 text-amber-500/60 mx-auto mb-2 group-hover:text-amber-400 transition-colors" />
-                            <p className="text-[10px] font-mono text-amber-500/80 uppercase tracking-wider font-bold">Escanear Reporte (IA)</p>
-                            <p className="text-[9px] font-mono text-amber-500/50 mt-1">Llena el form con IA automáticamente</p>
-                          </>
-                        )}
-                        <span className="absolute top-1 right-1 text-[8px] bg-amber-500 text-black font-bold px-1.5 py-0.5 rounded-full uppercase">Beta</span>
-                      </div>
                     </div>
                     {Object.entries(progress).map(([k, pct]) => (
                       <div key={k} className="space-y-1">
@@ -1685,21 +1770,20 @@ export default function DailyReportsPage() {
                 </p>
                 <div className="space-y-1.5">
                   {CONTRACTORS_CONFIG.map(cfg => {
-                    const cid  = cfg.id as ContractorId;
-                    const d    = contractorSections[cid];
+                    const cid      = cfg.id as ContractorId;
+                    const d        = contractorSections[cid];
+                    const isEnabled = enabledContractors.has(cid);
                     const acts = d.activities.trim().split('\n').filter(Boolean).length;
                     const pers = Object.values(d.personnel).reduce((s, v) => s + v, 0);
-                    const hse  = Object.values(d.checklist).filter(Boolean).length;
-                    const hasSafety = d.safetyInfo.comments.trim().length > 0 || d.safetyInfo.incidents > 0;
+                    const hse  = d.sectionsEnabled.hse ? Object.values(d.checklist).filter(Boolean).length : 0;
+                    const hasSafety = d.sectionsEnabled.seguridad && (d.safetyInfo.comments.trim().length > 0 || d.safetyInfo.incidents > 0);
                     const hasData = acts > 0 || pers > 0;
                     return (
                       <div key={cid}
                         className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${
-                          hasData
-                            ? `border-[${cfg.color}33]`
-                            : 'border-primary/10 opacity-40'
+                          !isEnabled ? 'border-primary/10 opacity-30' : hasData ? '' : 'border-primary/10 opacity-40'
                         }`}
-                        style={{ borderColor: hasData ? `${cfg.color}30` : undefined, backgroundColor: hasData ? `${cfg.color}06` : undefined }}
+                        style={{ borderColor: isEnabled && hasData ? `${cfg.color}30` : undefined, backgroundColor: isEnabled && hasData ? `${cfg.color}06` : undefined }}
                       >
                         <button
                           onClick={() => setActiveContractorId(cid)}
@@ -1712,11 +1796,12 @@ export default function DailyReportsPage() {
                           <span className="text-primary/30 ml-0.5 text-[7px]">{cfg.sistema}</span>
                         </button>
                         <div className="flex items-center gap-2 text-[8px]">
-                          {acts > 0   && <span className="text-green-400/80">✅ {acts} activ.</span>}
-                          {pers > 0   && <span className="text-cyan-400/80">👷 {pers}p</span>}
-                          {hse > 0    && <span className="text-amber-400/80">⚠️ {hse} HSE</span>}
-                          {hasSafety  && <span className="text-purple-400/80">🛡️ seg.</span>}
-                          {!hasData   && <span className="text-primary/25">sin datos</span>}
+                          {!isEnabled && <span className="text-primary/30 italic">excluido</span>}
+                          {isEnabled && acts > 0  && <span className="text-green-400/80">✅ {acts} activ.</span>}
+                          {isEnabled && pers > 0  && <span className="text-cyan-400/80">👷 {pers}p</span>}
+                          {isEnabled && hse > 0   && <span className="text-amber-400/80">⚠️ {hse} HSE</span>}
+                          {isEnabled && hasSafety && <span className="text-purple-400/80">🛡️ seg.</span>}
+                          {isEnabled && !hasData  && <span className="text-primary/25">sin datos</span>}
                         </div>
                       </div>
                     );
