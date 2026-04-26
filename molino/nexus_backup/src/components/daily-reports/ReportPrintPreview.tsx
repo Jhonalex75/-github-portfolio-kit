@@ -223,7 +223,6 @@ function ContractorCard({ section }: { section: ContractorSection }) {
       border: `2px solid ${color}`,
       borderRadius: '4px',
       marginBottom: '16px',
-      pageBreakInside: 'avoid',
       overflow: 'hidden',
     }}>
       {/* Contractor header bar */}
@@ -234,6 +233,7 @@ function ContractorCard({ section }: { section: ContractorSection }) {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        pageBreakAfter: 'avoid',
       }}>
         <div>
           <span style={{ fontSize: '13px', fontWeight: 'bold', fontFamily: 'Arial, sans-serif', letterSpacing: '0.05em' }}>
@@ -282,7 +282,7 @@ function ContractorCard({ section }: { section: ContractorSection }) {
         </div>
 
         {/* Resources: Personnel + Equipment */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '4px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '4px', pageBreakInside: 'avoid' }}>
 
           {/* Personnel */}
           <div>
@@ -395,7 +395,7 @@ function ContractorCard({ section }: { section: ContractorSection }) {
             const weldColor = section.contratista === 'TECNITANQUES' ? '#1B5E20' : '#4A148C';
             const weldLight = section.contratista === 'TECNITANQUES' ? '#E8F5E9'  : '#F3E5F5';
             return (
-              <>
+              <div style={{ pageBreakInside: 'avoid' }}>
                 <SectionTitle color={weldColor}>◆ METRAJES DE SOLDADURA — RENDIMIENTO DIARIO</SectionTitle>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', fontFamily: 'Arial, sans-serif' }}>
                   <thead>
@@ -430,7 +430,7 @@ function ContractorCard({ section }: { section: ContractorSection }) {
                     </tr>
                   </tbody>
                 </table>
-              </>
+              </div>
             );
           })()
         }
