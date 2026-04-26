@@ -383,22 +383,26 @@ function buildPrintData(r: ReportDoc): PrintReportData {
     ? new Date(r.metadata.date).toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
     : '—';
 
+  const meta = r.metadata as Record<string, unknown>;
   return {
     documentControl: {
-      empresaSupervisora:   'SGS S.A.',
+      empresaSupervisora:   'SGS S.A. | ETSA — Estudios Técnicos S.A.',
       normativa:            'DOCUMENTO CONTROLADO — ISO 9001:2015 — Cert. No. CO23-1234-QMS',
       cliente:              'ARIS MINING S.A.S.',
-      tipoReporte:          'REPORTE DIARIO DE MONTAJE INDUSTRIAL',
-      proyecto:             r.metadata?.proyectoRef || 'ARIS MINING — MIL24.001',
+      tipoReporte:          'REPORTE DIARIO DE INTERVENTORÍA',
+      proyecto:             r.metadata?.proyectoRef || 'ARIS MINING — MIL24.001 Marmato',
       folio,
       fechaOperacion:       fecha,
       codigoDocumento:      `DOC-NEXUS-${folio}`,
       revision:             '01',
-      emisor:               PROF_NAME,
+      emisor:               r.metadata?.authorName || PROF_NAME,
       matriculaProfesional: PROF_LICENSE,
+      ubicacion:            (meta.ubicacion as string) || 'Marmato, Caldas, Colombia',
+      especialidad:         (meta.especialidad as string) || 'Interventoría de Montaje Industrial',
     },
     condicionClimatica: r.metadata?.weather || '—',
     estadoFolio:        (r.metadata?.status || 'ANCLADO').toUpperCase(),
+    novedades:          (meta.novedades as string) || '',
     contratistas:       CONTRACTORS_CONFIG.filter(c => enabledSet.has(c.id)).map(mapSection),
     evidence:           (r.evidence || []).filter(e => e.type === 'photo'),
     adminActivities: showAvances ? (r.admin_activities || []).map(a => ({
@@ -462,6 +466,10 @@ export default function DailyReportsPage() {
   const [reportDate,      setReportDate]      = useState<string>(new Date().toISOString().slice(0, 10));
   const [adminActivities, setAdminActivities] = useState<AdminActivity[]>(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
   const [evidence,        setEvidence]        = useState<Evidence[]>([]);
+  // ── Presentación / identificación adicional ──
+  const [ubicacion,    setUbicacion]    = useState('Marmato, Caldas, Colombia');
+  const [especialidad, setEspecialidad] = useState('Interventoría de Montaje Industrial');
+  const [novedades,    setNovedades]    = useState('');
 
   // ── UI state ──
   const [submitting,      setSubmitting]      = useState(false);
@@ -627,6 +635,9 @@ export default function DailyReportsPage() {
         status,
         enabledContractors: [...enabledContractors],
         avancesEnabled,
+        ubicacion,
+        especialidad,
+        novedades,
       },
       // New per-contractor data
       contractor_sections: contractorSections,
@@ -656,6 +667,9 @@ export default function DailyReportsPage() {
     setEvidence([]);
     setEditing(null);
     setTab('meta');
+    setUbicacion('Marmato, Caldas, Colombia');
+    setEspecialidad('Interventoría de Montaje Industrial');
+    setNovedades('');
   };
 
   // ── Submit ──
@@ -797,6 +811,11 @@ export default function DailyReportsPage() {
     setEvidence(r.evidence || []);
     setActiveContractorId('HL-GISAICO');
     setTab('meta');
+    // Restore presentación fields
+    const meta = r.metadata as Record<string, unknown>;
+    setUbicacion((meta.ubicacion as string) || 'Marmato, Caldas, Colombia');
+    setEspecialidad((meta.especialidad as string) || 'Interventoría de Montaje Industrial');
+    setNovedades((meta.novedades as string) || '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -1053,6 +1072,45 @@ export default function DailyReportsPage() {
                           </button>
                         ))}
                       </div>
+                    </div>
+
+                    {/* Ubicación */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                        📍 Ubicación del Proyecto
+                      </Label>
+                      <Input
+                        value={ubicacion}
+                        onChange={e => setUbicacion(e.target.value)}
+                        placeholder="Marmato, Caldas, Colombia"
+                        className="bg-primary/5 border-primary/10 text-xs font-mono"
+                      />
+                    </div>
+
+                    {/* Especialidad */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] text-cyan-500/50 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                        🎓 Especialidad / Tipo de Interventoría
+                      </Label>
+                      <Input
+                        value={especialidad}
+                        onChange={e => setEspecialidad(e.target.value)}
+                        placeholder="Interventoría de Montaje Industrial"
+                        className="bg-primary/5 border-primary/10 text-xs font-mono"
+                      />
+                    </div>
+
+                    {/* Novedades */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] text-amber-500/60 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                        ⚠️ Novedades / Observaciones — Desviaciones Mecánicas o Logísticas
+                      </Label>
+                      <Textarea
+                        value={novedades}
+                        onChange={e => setNovedades(e.target.value)}
+                        placeholder="Registre aquí desviaciones, novedades mecánicas, logísticas o cualquier observación relevante de la jornada…"
+                        className="bg-primary/5 border-amber-500/10 text-xs min-h-[90px] resize-none font-mono leading-relaxed"
+                      />
                     </div>
 
                     {/* Activities — per contractor */}

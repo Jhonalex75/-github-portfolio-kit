@@ -14,8 +14,9 @@
  */
 
 import React from 'react';
-import { X, Printer, Download } from 'lucide-react';
+import { X, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SGS_ETSA_DATA_URL, ARIS_MINING_DATA_URL } from '@/lib/report-logos';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface HsePermit {
@@ -59,20 +60,23 @@ interface ContractorSection {
 
 export interface PrintReportData {
   documentControl: {
-    empresaSupervisora:  string;
-    normativa:           string;
-    cliente:             string;
-    tipoReporte:         string;
-    proyecto:            string;
-    folio:               string;
-    fechaOperacion:      string;
-    codigoDocumento:     string;
-    revision:            string;
-    emisor:              string;
+    empresaSupervisora:   string;
+    normativa:            string;
+    cliente:              string;
+    tipoReporte:          string;
+    proyecto:             string;
+    folio:                string;
+    fechaOperacion:       string;
+    codigoDocumento:      string;
+    revision:             string;
+    emisor:               string;
     matriculaProfesional: string;
+    ubicacion:            string;
+    especialidad:         string;
   };
   condicionClimatica: string;
   estadoFolio:        string;
+  novedades?:         string;
   contratistas:       ContractorSection[];
   evidence:           Array<{ urlOrBase64: string; name: string }>;
   adminActivities:    AvanceItem[];
@@ -528,75 +532,71 @@ export function ReportPrintPreview({ data, onClose }: Props) {
         }}>
 
           {/* ── ENCABEZADO PRINCIPAL ── */}
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '0' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '0', border: '2px solid #B0BEC5' }}>
             <tbody>
-              {/* Row 1: ISO/SGS banner */}
-              <tr>
-                <td colSpan={3} style={{
-                  backgroundColor: '#FF6B00',
-                  color: '#FFF',
-                  padding: '5px 12px',
-                  fontSize: '8.5px',
-                  fontWeight: 'bold',
-                  letterSpacing: '0.06em',
-                  textAlign: 'center',
+              {/* Row 1: Logo SGS|ETSA  ·  Título  ·  Logo Aris Mining */}
+              <tr style={{ backgroundColor: '#FFFFFF' }}>
+                {/* SGS | ETSA logo */}
+                <td style={{
+                  width: '150px', padding: '8px 12px',
+                  verticalAlign: 'middle', borderRight: '1.5px solid #D0D7DE',
                 }}>
-                  {dc.empresaSupervisora} &nbsp;|&nbsp; {dc.normativa}
-                </td>
-              </tr>
-
-              {/* Row 2: Logos + Title */}
-              <tr style={{ backgroundColor: '#ECEFF1', border: '2px solid #B0BEC5' }}>
-                {/* SGS Logo placeholder */}
-                <td style={{ width: '140px', padding: '10px 14px', verticalAlign: 'middle', borderRight: '2px solid #B0BEC5' }}>
-                  <div style={{
-                    width: '110px',
-                    height: '52px',
-                    backgroundColor: '#FF6B00',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexDirection: 'column',
-                  }}>
-                    <span style={{ color: '#FFF', fontSize: '20px', fontWeight: 'bold', lineHeight: 1 }}>SGS</span>
-                    <span style={{ color: '#FFF', fontSize: '7px', letterSpacing: '0.15em', opacity: 0.9 }}>SUPERVISORA</span>
-                  </div>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={SGS_ETSA_DATA_URL}
+                    alt="SGS | ETSA — Estudios Técnicos S.A."
+                    style={{ width: '138px', height: 'auto', display: 'block' }}
+                  />
                 </td>
 
-                {/* Center title */}
-                <td style={{ textAlign: 'center', padding: '10px 20px', verticalAlign: 'middle' }}>
-                  <div style={{ fontSize: '7.5px', color: '#546E7A', letterSpacing: '0.12em', marginBottom: '4px' }}>
+                {/* Center — document title */}
+                <td style={{ textAlign: 'center', padding: '10px 16px', verticalAlign: 'middle' }}>
+                  <div style={{ fontSize: '7px', color: '#78909C', letterSpacing: '0.18em', marginBottom: '3px', fontFamily: 'Arial, sans-serif' }}>
                     {dc.cliente}
                   </div>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#0D1B2A', letterSpacing: '0.04em', lineHeight: 1.3 }}>
+                  <div style={{ fontSize: '15px', fontWeight: 'bold', color: '#0D1B2A', letterSpacing: '0.03em', lineHeight: 1.2, fontFamily: 'Arial, sans-serif' }}>
                     {dc.tipoReporte}
                   </div>
-                  <div style={{ fontSize: '9px', color: '#37474F', marginTop: '4px' }}>
+                  <div style={{ fontSize: '8.5px', color: '#455A64', marginTop: '5px', fontFamily: 'Arial, sans-serif' }}>
                     {dc.proyecto}
+                  </div>
+                  <div style={{ fontSize: '7.5px', color: '#90A4AE', marginTop: '2px', fontStyle: 'italic', fontFamily: 'Arial, sans-serif' }}>
+                    {dc.especialidad}
                   </div>
                 </td>
 
-                {/* Aris Mining Logo placeholder */}
-                <td style={{ width: '140px', padding: '10px 14px', verticalAlign: 'middle', borderLeft: '2px solid #B0BEC5' }}>
-                  <div style={{
-                    width: '110px',
-                    height: '52px',
-                    backgroundColor: '#1A237E',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexDirection: 'column',
-                    marginLeft: 'auto',
-                  }}>
-                    <span style={{ color: '#FFD700', fontSize: '11px', fontWeight: 'bold', lineHeight: 1 }}>ARIS</span>
-                    <span style={{ color: '#FFF', fontSize: '9px', letterSpacing: '0.08em' }}>MINING</span>
-                  </div>
+                {/* Aris Mining Marmato logo */}
+                <td style={{
+                  width: '150px', padding: '8px 12px',
+                  verticalAlign: 'middle', borderLeft: '1.5px solid #D0D7DE',
+                  textAlign: 'right',
+                }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={ARIS_MINING_DATA_URL}
+                    alt="Aris Mining — Marmato"
+                    style={{ width: '138px', height: 'auto', display: 'inline-block' }}
+                  />
                 </td>
               </tr>
 
-              {/* Row 3: Folio + Date band */}
+              {/* Row 2: Normativa / ISO banner */}
+              <tr>
+                <td colSpan={3} style={{
+                  backgroundColor: '#E8651A',
+                  color: '#FFF',
+                  padding: '4px 14px',
+                  fontSize: '8px',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.07em',
+                  textAlign: 'center',
+                  fontFamily: 'Arial, sans-serif',
+                }}>
+                  {dc.empresaSupervisora} &nbsp;·&nbsp; {dc.normativa}
+                </td>
+              </tr>
+
+              {/* Row 3: Folio + Date + Código band */}
               <tr>
                 <td colSpan={3} style={{
                   backgroundColor: '#1A1A2E',
@@ -609,7 +609,8 @@ export function ReportPrintPreview({ data, onClose }: Props) {
                   Folio: <strong>{dc.folio}</strong> &emsp;|&emsp;
                   Fecha: <strong>{dc.fechaOperacion}</strong> &emsp;|&emsp;
                   Código: <strong>{dc.codigoDocumento}</strong> &emsp;|&emsp;
-                  Rev: <strong>{dc.revision}</strong>
+                  Rev: <strong>{dc.revision}</strong> &emsp;|&emsp;
+                  Ubicación: <strong>{dc.ubicacion}</strong>
                 </td>
               </tr>
 
@@ -621,9 +622,11 @@ export function ReportPrintPreview({ data, onClose }: Props) {
                   fontSize: '8.5px',
                   color: '#455A64',
                   borderBottom: '2px solid #B0BEC5',
+                  fontFamily: 'Arial, sans-serif',
                 }}>
-                  Emisor: <strong>{dc.emisor}</strong> &emsp;|&emsp;
-                  Matrícula Profesional: <strong>{dc.matriculaProfesional}</strong>
+                  Elaborado por: <strong>{dc.emisor}</strong> &emsp;|&emsp;
+                  Matrícula Profesional: <strong>{dc.matriculaProfesional}</strong> &emsp;|&emsp;
+                  Especialidad: <strong>{dc.especialidad}</strong>
                 </td>
               </tr>
             </tbody>
@@ -632,16 +635,40 @@ export function ReportPrintPreview({ data, onClose }: Props) {
           {/* ── IDENTIFICACIÓN ── */}
           <SectionTitle>◆ IDENTIFICACIÓN DEL REPORTE</SectionTitle>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px', backgroundColor: '#E0E0E0' }}>
-            <DataRow label="Proyecto"                  value={dc.proyecto} />
-            <DataRow label="Condición Climática"        value={data.condicionClimatica} />
-            <DataRow label="Estado del Folio"           value={<span style={{ fontWeight: 'bold', color: '#2E7D32' }}>✅ {data.estadoFolio}</span>} />
-            <DataRow label="Contratistas Activos"       value={data.contratistas.map(c => c.contratista).join(' · ')} />
+            <DataRow label="Proyecto"             value={dc.proyecto} />
+            <DataRow label="Ubicación"             value={dc.ubicacion} />
+            <DataRow label="Especialidad"          value={dc.especialidad} />
+            <DataRow label="Condición Climática"   value={data.condicionClimatica} />
+            <DataRow label="Estado del Folio"      value={<span style={{ fontWeight: 'bold', color: '#2E7D32' }}>✅ {data.estadoFolio}</span>} />
+            <DataRow label="Contratistas Activos"  value={data.contratistas.map(c => c.contratista).join(' · ')} />
           </div>
 
           {/* ── CONTRATISTA SECTIONS ── */}
           {data.contratistas.map((section, i) => (
             <ContractorCard key={i} section={section} />
           ))}
+
+          {/* ── NOVEDADES Y OBSERVACIONES ── */}
+          {data.novedades && data.novedades.trim() && (
+            <>
+              <SectionTitle color="#4E342E">◆ NOVEDADES Y OBSERVACIONES — DESVIACIONES MECÁNICAS / LOGÍSTICAS</SectionTitle>
+              <div style={{
+                backgroundColor: '#FFF8E1',
+                border: '1px solid #FFD54F',
+                borderLeft: '4px solid #F57F17',
+                borderRadius: '3px',
+                padding: '10px 14px',
+                fontSize: '9.5px',
+                fontFamily: 'Arial, sans-serif',
+                lineHeight: '1.75',
+                color: '#4E342E',
+                marginBottom: '8px',
+                whiteSpace: 'pre-wrap',
+              }}>
+                {data.novedades}
+              </div>
+            </>
+          )}
 
           {/* ── GESTIÓN Y ADMINISTRACIÓN ── */}
           <SectionTitle color="#004D40">◆ CONTROL DE AVANCE — GESTIÓN Y ADMINISTRACIÓN</SectionTitle>

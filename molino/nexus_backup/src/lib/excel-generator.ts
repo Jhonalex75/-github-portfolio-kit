@@ -20,6 +20,9 @@ export interface DailyReportData {
     frente: string;
     proyectoRef?: string;
     status?: string;
+    ubicacion?: string;
+    especialidad?: string;
+    novedades?: string;
   };
   recursos: Array<{ type: string; count: number }>;
   checklist_hse: {
@@ -128,57 +131,127 @@ function sectionHeader(ws: ExcelJS.Worksheet, title: string, bg: string, cols = 
   ws.getRow(rn).height = 22;
 }
 
+// ─── Logo-zone color constants ────────────────────────────────────────────────
+const C_SGS_GRAY  = 'FF5A5A5A'; // SGS wordmark gray
+const C_SGS_ORG   = 'FFE8651A'; // SGS | ETSA orange accent
+const C_ARIS_BG   = 'FF1A3F5B'; // Aris Mining dark teal background
+const C_ARIS_GOLD = 'FFFFd700'; // Aris Mining gold/yellow text
+
+// Helper: column letter for 1-based index (1=A, 2=B, …, 26=Z)
+function colLetter(n: number): string { return String.fromCharCode(64 + n); }
+
 // ─── SGS/ISO Document Header (common to all sheets) ──────────────────────────
+// Row 1: [SGS|ETSA zone] | [Document title] | [Aris Mining zone]
+// Row 2: Orange ISO/normativa banner
+// Row 3: Dark band — Folio · Fecha · Código · Ubicación
+// Row 4: Gray band  — Emisor · Especialidad
 function addDocumentHeader(
   ws: ExcelJS.Worksheet,
   sheetTitle: string,
   report: DailyReportData,
   cols: number,
 ) {
-  const lastCol = String.fromCharCode(64 + cols);
+  const lastCol = colLetter(cols);
+  const docCode  = `DOC-NEXUS-${report.metadata.consecutiveId}`;
+  const authorName  = report.metadata.authorName || PROF_NAME;
+  const ubicacion   = report.metadata.ubicacion  || 'Marmato, Caldas, Colombia';
+  const especialidad = report.metadata.especialidad || 'Interventoría de Montaje Industrial';
 
-  // Row 1: SGS / Company band
-  ws.mergeCells(`A1:${lastCol}1`);
-  const r1 = ws.getCell('A1');
-  r1.value = `SGS S.A.  |  DOCUMENTO CONTROLADO — ${CERT_ISO}`;
-  Object.assign(r1, hdr(C.sgsOrange, C.white, 9));
-  ws.getRow(1).height = 18;
+  // ── Row 1: 3-zone logo row ──
+  ws.getRow(1).height = 48;
 
-  // Row 2: Main document title
-  ws.mergeCells(`A2:${lastCol}2`);
-  const r2 = ws.getCell('A2');
-  r2.value = `ARIS MINING S.A.S.  |  ${sheetTitle}`;
-  Object.assign(r2, hdr(C.black, C.white, 14));
-  ws.getRow(2).height = 34;
-
-  // Row 3: Project reference
-  ws.mergeCells(`A3:${lastCol}3`);
-  const r3 = ws.getCell('A3');
-  r3.value = `Proyecto: ${report.metadata.proyectoRef || 'MIL24.001 — Lower Mining Marmato'}   |   Folio: ${report.metadata.consecutiveId}   |   Fecha: ${new Date(report.metadata.date).toLocaleDateString('es-CO', { dateStyle: 'full' })}`;
-  Object.assign(r3, hdr(C.sgsDark, C.gold, 9));
-  ws.getRow(3).height = 18;
-
-  // Row 4: Control meta band (document code / revision / page)
-  const docCode = `DOC-NEXUS-${report.metadata.consecutiveId}`;
-  let cell4a: ExcelJS.Cell;
-  let cell4b: ExcelJS.Cell;
-  let cell4c: ExcelJS.Cell;
   if (cols >= 4) {
-    const midLeft  = Math.floor(cols / 2);
-    const midRight = midLeft + 1;
-    ws.mergeCells(`A4:${String.fromCharCode(64 + midLeft)}4`);
-    ws.mergeCells(`${String.fromCharCode(64 + midRight)}4:${lastCol}4`);
-    cell4a = ws.getCell('A4');
-    cell4b = ws.getCell(`${String.fromCharCode(64 + midRight)}4`);
+    // Wide sheets: left zone (cols 1-2) | center (cols 3..last-2) | right zone (last-1..last)
+    const centerStart = colLetter(3);
+    const centerEnd   = colLetter(cols - 2);
+    const rightStart  = colLetter(cols - 1);
+
+    ws.mergeCells(`A1:B1`);
+    ws.mergeCells(`${centerStart}1:${centerEnd}1`);
+    ws.mergeCells(`${rightStart}1:${lastCol}1`);
+
+    // Left: SGS | ETSA
+    const sgsCell = ws.getCell('A1');
+    sgsCell.value = 'SGS  |  ETSA\nESTUDIOS TÉCNICOS S.A.';
+    sgsCell.font  = { bold: true, name: 'Calibri', size: 13, color: { argb: C_SGS_GRAY } };
+    sgsCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.white } };
+    sgsCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    sgsCell.border = { left: thick(C_SGS_ORG), top: thick(C.midGray), bottom: thick(C_SGS_ORG) };
+
+    // Center: document title
+    const titleCell = ws.getCell(`${centerStart}1`);
+    titleCell.value = `ARIS MINING S.A.S.\n${sheetTitle}\n${especialidad}`;
+    titleCell.font  = { bold: true, name: 'Calibri', size: 13, color: { argb: C.black } };
+    titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.white } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    titleCell.border = { top: thick(C.midGray), bottom: thick(C_SGS_ORG) };
+
+    // Right: Aris Mining
+    const arisCell = ws.getCell(`${rightStart}1`);
+    arisCell.value = 'ARIS MINING\nMARMATO';
+    arisCell.font  = { bold: true, name: 'Calibri', size: 13, color: { argb: C.white } };
+    arisCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: C_ARIS_BG } };
+    arisCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    arisCell.border = { right: thick(C_ARIS_BG), top: thick(C.midGray), bottom: thick(C_ARIS_BG) };
+
   } else {
-    ws.mergeCells(`A4:B4`);
-    cell4a = ws.getCell('A4');
-    cell4b = cell4a;
+    // 2-column sheets: left = SGS, right = Aris Mining
+    const sgsCell = ws.getCell('A1');
+    sgsCell.value = 'SGS  |  ETSA\nESTUDIOS TÉCNICOS S.A.';
+    sgsCell.font  = { bold: true, name: 'Calibri', size: 11, color: { argb: C_SGS_GRAY } };
+    sgsCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.white } };
+    sgsCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+    sgsCell.border = { left: thick(C_SGS_ORG), top: thick(C.midGray), bottom: thick(C_SGS_ORG) };
+
+    const arisCell = ws.getCell(`${lastCol}1`);
+    arisCell.value = 'ARIS MINING\nMARMATO';
+    arisCell.font  = { bold: true, name: 'Calibri', size: 11, color: { argb: C.white } };
+    arisCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: C_ARIS_BG } };
+    arisCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
   }
-  cell4a.value = `Código: ${docCode}   Rev: 01   Emisor: ${PROF_NAME}   Matrícula: ${PROF_LICENSE}`;
-  Object.assign(cell4a, dat(C.midGray, C.gray, 8));
-  cell4a.alignment = { horizontal: 'left', vertical: 'middle' };
-  ws.getRow(4).height = 16;
+
+  // ── Row 2: Document title (2-col) + Orange ISO banner (all) ──
+  if (cols <= 2) {
+    ws.mergeCells(`A2:${lastCol}2`);
+    const titleCell = ws.getCell('A2');
+    titleCell.value = `ARIS MINING S.A.S.  |  ${sheetTitle}`;
+    Object.assign(titleCell, hdr(C.black, C.white, 13));
+    ws.getRow(2).height = 30;
+
+    ws.mergeCells(`A3:${lastCol}3`);
+    const isoCell = ws.getCell('A3');
+    isoCell.value = `SGS S.A.  ·  DOCUMENTO CONTROLADO  ·  ${CERT_ISO}`;
+    Object.assign(isoCell, hdr(C_SGS_ORG, C.white, 8));
+    ws.getRow(3).height = 16;
+  } else {
+    ws.mergeCells(`A2:${lastCol}2`);
+    const isoCell = ws.getCell('A2');
+    isoCell.value = `SGS S.A.  ·  DOCUMENTO CONTROLADO  ·  ${CERT_ISO}`;
+    Object.assign(isoCell, hdr(C_SGS_ORG, C.white, 8));
+    ws.getRow(2).height = 16;
+  }
+
+  // ── Row for project/folio/date band — dynamic row number ──
+  const folioRow = cols <= 2 ? 4 : 3;
+  ws.mergeCells(`A${folioRow}:${lastCol}${folioRow}`);
+  const folioCell = ws.getCell(`A${folioRow}`);
+  folioCell.value =
+    `Proyecto: ${report.metadata.proyectoRef || 'MIL24.001 — Lower Mine Marmato'}` +
+    `   |   Folio: ${report.metadata.consecutiveId}` +
+    `   |   Fecha: ${new Date(report.metadata.date).toLocaleDateString('es-CO', { dateStyle: 'full' })}` +
+    `   |   Ubicación: ${ubicacion}`;
+  Object.assign(folioCell, hdr(C.sgsDark, C.gold, 9));
+  ws.getRow(folioRow).height = 18;
+
+  // ── Emisor / especialidad band ──
+  const emisorRow = folioRow + 1;
+  ws.mergeCells(`A${emisorRow}:${lastCol}${emisorRow}`);
+  const emisorCell = ws.getCell(`A${emisorRow}`);
+  emisorCell.value =
+    `Código: ${docCode}   Rev: 01   Elaborado por: ${authorName}   Mat.: ${PROF_LICENSE}   Especialidad: ${especialidad}`;
+  Object.assign(emisorCell, dat(C.midGray, C_SGS_GRAY, 8));
+  emisorCell.alignment = { horizontal: 'left', vertical: 'middle' };
+  ws.getRow(emisorRow).height = 16;
 
   ws.addRow([]); // spacer
 }
@@ -224,12 +297,14 @@ async function buildSheetReporteDiario(wb: ExcelJS.Workbook, report: DailyReport
   // ── Identification ──
   sectionHeader(ws, 'IDENTIFICACIÓN DEL REPORTE', C.black);
   const metaRows: [string, string][] = [
-    ['Consecutivo / Folio ID',   report.metadata.consecutiveId],
-    ['Fecha de Operación',        new Date(report.metadata.date).toLocaleString('es-CO', { dateStyle: 'full', timeStyle: 'short' })],
+    ['Consecutivo / Folio ID',    report.metadata.consecutiveId],
+    ['Fecha de Operación',         new Date(report.metadata.date).toLocaleString('es-CO', { dateStyle: 'full', timeStyle: 'short' })],
     ['Frente / Empresa Principal', report.metadata.frente],
     ['Condición Climática',        report.metadata.weather],
-    ['Supervisor Emisor',          report.metadata.authorName],
+    ['Elaborado por',              report.metadata.authorName],
     ['Matrícula Profesional',      PROF_LICENSE],
+    ['Ubicación',                  report.metadata.ubicacion || 'Marmato, Caldas, Colombia'],
+    ['Especialidad',               report.metadata.especialidad || 'Interventoría de Montaje Industrial'],
     ['Estado del Folio',           (report.metadata.status || 'ANCLADO').toUpperCase()],
     ['Proyecto',                   report.metadata.proyectoRef || 'ARIS MINING — MIL24.001'],
     ['Sistema de Gestión',         CERT_ISO],
@@ -250,6 +325,17 @@ async function buildSheetReporteDiario(wb: ExcelJS.Workbook, report: DailyReport
   Object.assign(actRow.getCell(2), dat(C.white, C.black));
   actRow.getCell(2).alignment = { wrapText: true, vertical: 'top' };
   actRow.height = 100;
+
+  // ── Novedades / Observaciones ──
+  if (report.metadata.novedades?.trim()) {
+    sectionHeader(ws, 'NOVEDADES Y OBSERVACIONES — DESVIACIONES MECÁNICAS / LOGÍSTICAS', 'FF4E342E');
+    ws.addRow(['Novedades / Observaciones', report.metadata.novedades]);
+    const novRow = ws.getRow(ws.rowCount);
+    Object.assign(novRow.getCell(1), dat('FFFFF8E1', C.black)); novRow.getCell(1).font = { bold: true, name: 'Calibri', size: 10 };
+    Object.assign(novRow.getCell(2), dat('FFFFF8E1', 'FF4E342E'));
+    novRow.getCell(2).alignment = { wrapText: true, vertical: 'top' };
+    novRow.height = 60;
+  }
 
   // ── Recursos internos ──
   const activeRecursos = recursos.filter(r => r.type && r.count > 0);
