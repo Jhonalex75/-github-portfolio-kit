@@ -73,6 +73,8 @@ export interface PrintReportData {
     matriculaProfesional: string;
     ubicacion:            string;
     especialidad:         string;
+    showLicense:          boolean;
+    showCodeAndFolio:     boolean;
   };
   condicionClimatica: string;
   estadoFolio:        string;
@@ -264,7 +266,7 @@ function ContractorCard({ section }: { section: ContractorSection }) {
       <div style={{ padding: '8px 12px' }}>
 
         {/* Activities */}
-        <SectionTitle color="#37474F">◆ NARRATIVA DE ACTIVIDADES EJECUTADAS</SectionTitle>
+        <SectionTitle color="#37474F">◆ ACTIVIDADES EJECUTADAS</SectionTitle>
         <div style={{
           backgroundColor: '#FAFAFA',
           border: '1px solid #E0E0E0',
@@ -606,9 +608,9 @@ export function ReportPrintPreview({ data, onClose }: Props) {
                   fontFamily: 'monospace',
                   letterSpacing: '0.05em',
                 }}>
-                  Folio: <strong>{dc.folio}</strong> &emsp;|&emsp;
+                  {dc.showCodeAndFolio && <>Folio: <strong>{dc.folio}</strong> &emsp;|&emsp;</>}
                   Fecha: <strong>{dc.fechaOperacion}</strong> &emsp;|&emsp;
-                  Código: <strong>{dc.codigoDocumento}</strong> &emsp;|&emsp;
+                  {dc.showCodeAndFolio && <>Código: <strong>{dc.codigoDocumento}</strong> &emsp;|&emsp;</>}
                   Rev: <strong>{dc.revision}</strong> &emsp;|&emsp;
                   Ubicación: <strong>{dc.ubicacion}</strong>
                 </td>
@@ -624,9 +626,9 @@ export function ReportPrintPreview({ data, onClose }: Props) {
                   borderBottom: '2px solid #B0BEC5',
                   fontFamily: 'Arial, sans-serif',
                 }}>
-                  Elaborado por: <strong>{dc.emisor}</strong> &emsp;|&emsp;
-                  Matrícula Profesional: <strong>{dc.matriculaProfesional}</strong> &emsp;|&emsp;
-                  Especialidad: <strong>{dc.especialidad}</strong>
+                  Elaborado por: <strong>{dc.emisor}</strong>
+                  {dc.showLicense && <> &emsp;|&emsp; Matrícula Profesional: <strong>{dc.matriculaProfesional}</strong></>}
+                  &emsp;|&emsp; Especialidad: <strong>{dc.especialidad}</strong>
                 </td>
               </tr>
             </tbody>
@@ -670,36 +672,40 @@ export function ReportPrintPreview({ data, onClose }: Props) {
             </>
           )}
 
-          {/* ── GESTIÓN Y ADMINISTRACIÓN ── */}
-          <SectionTitle color="#004D40">◆ CONTROL DE AVANCE — GESTIÓN Y ADMINISTRACIÓN</SectionTitle>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', fontFamily: 'Arial, sans-serif' }}>
-            <thead>
-              <tr>
-                <th style={{ backgroundColor: '#004D40', color: '#FFF', padding: '5px 10px', textAlign: 'left', width: '50%' }}>ACTIVIDAD DE GESTIÓN</th>
-                <th style={{ backgroundColor: '#004D40', color: '#FFF', padding: '5px 10px', textAlign: 'center', width: '15%' }}>% AVANCE</th>
-                <th style={{ backgroundColor: '#004D40', color: '#FFF', padding: '5px 10px', textAlign: 'left' }}>ESTADO</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.adminActivities.map((a, i) => (
-                <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#FFF' : '#F5F5F5' }}>
-                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #E0E0E0' }}>{a.actividad}</td>
-                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #E0E0E0' }}>
-                    <ProgressBar
-                      pct={parseInt(a.porcentaje)}
-                      estado={a.estado}
-                    />
-                  </td>
-                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #E0E0E0', fontSize: '8px' }}>{a.estado}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* ── GESTIÓN Y ADMINISTRACIÓN — solo si hay actividades ── */}
+          {data.adminActivities.length > 0 && (
+            <>
+              <SectionTitle color="#004D40">◆ CONTROL DE AVANCE — GESTIÓN Y ADMINISTRACIÓN</SectionTitle>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', fontFamily: 'Arial, sans-serif' }}>
+                <thead>
+                  <tr>
+                    <th style={{ backgroundColor: '#004D40', color: '#FFF', padding: '5px 10px', textAlign: 'left', width: '50%' }}>ACTIVIDAD DE GESTIÓN</th>
+                    <th style={{ backgroundColor: '#004D40', color: '#FFF', padding: '5px 10px', textAlign: 'center', width: '15%' }}>% AVANCE</th>
+                    <th style={{ backgroundColor: '#004D40', color: '#FFF', padding: '5px 10px', textAlign: 'left' }}>ESTADO</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.adminActivities.map((a, i) => (
+                    <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#FFF' : '#F5F5F5' }}>
+                      <td style={{ padding: '5px 10px', borderBottom: '1px solid #E0E0E0' }}>{a.actividad}</td>
+                      <td style={{ padding: '5px 10px', borderBottom: '1px solid #E0E0E0' }}>
+                        <ProgressBar
+                          pct={parseInt(a.porcentaje)}
+                          estado={a.estado}
+                        />
+                      </td>
+                      <td style={{ padding: '5px 10px', borderBottom: '1px solid #E0E0E0', fontSize: '8px' }}>{a.estado}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
 
           {/* ── EVIDENCIA FOTOGRÁFICA ── */}
           {data.evidence && data.evidence.length > 0 && (
             <>
-              <SectionTitle color="#004D40">◆ BÓVEDA DE EVIDENCIA FOTOGRÁFICA ({data.evidence.length} imagen(es))</SectionTitle>
+              <SectionTitle color="#004D40">◆ REGISTRO FOTOGRÁFICO ({data.evidence.length} imagen(es))</SectionTitle>
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
@@ -749,8 +755,9 @@ export function ReportPrintPreview({ data, onClose }: Props) {
             letterSpacing: '0.05em',
           }}>
             Documento generado electrónicamente &nbsp;·&nbsp; NEXUS Command Center v2.1 — SGS Quality Portal &nbsp;·&nbsp;
-            {dc.emisor} &nbsp;·&nbsp; Mat. Prof.: {dc.matriculaProfesional} &nbsp;·&nbsp;
-            ISO 9001:2015
+            {dc.emisor}
+            {dc.showLicense && <> &nbsp;·&nbsp; Mat. Prof.: {dc.matriculaProfesional}</>}
+            &nbsp;·&nbsp; ISO 9001:2015
           </div>
 
         </div>

@@ -287,6 +287,12 @@ function compressImage(file: File, maxPx = 1200, quality = 0.75): Promise<string
 // ─── Print data adapter ───────────────────────────────────────────────────────
 const PROF_NAME    = 'MSC. ING. JHON ALEXANDER VALENCIA MARULANDA';
 const PROF_LICENSE = 'CL230-31983';
+const ADMIN_UID    = ROOT_UIDS[0]; // R3MVwE12nVMg128Kv6bdwJ6MKav1
+
+function resolveEmisorName(rawName: string): string {
+  if (rawName.toLowerCase().includes('william')) return 'ING. WILLIAM FERNEY SALAS FALLA';
+  return rawName || PROF_NAME;
+}
 
 // Resolves per-contractor data from a ReportDoc, with full legacy migration
 function resolveContractorData(r: ReportDoc, cid: ContractorId): PerContractorData {
@@ -384,6 +390,9 @@ function buildPrintData(r: ReportDoc): PrintReportData {
     : '—';
 
   const meta = r.metadata as Record<string, unknown>;
+  const isAdminReport = r.metadata?.authorUid === ADMIN_UID;
+  const emisor = resolveEmisorName(r.metadata?.authorName || '');
+
   return {
     documentControl: {
       empresaSupervisora:   'SGS S.A. | ETSA — Estudios Técnicos S.A.',
@@ -395,8 +404,10 @@ function buildPrintData(r: ReportDoc): PrintReportData {
       fechaOperacion:       fecha,
       codigoDocumento:      `DOC-NEXUS-${folio}`,
       revision:             '01',
-      emisor:               r.metadata?.authorName || PROF_NAME,
+      emisor,
       matriculaProfesional: PROF_LICENSE,
+      showLicense:          isAdminReport,
+      showCodeAndFolio:     isAdminReport,
       ubicacion:            (meta.ubicacion as string) || 'Marmato, Caldas, Colombia',
       especialidad:         (meta.especialidad as string) || 'Interventoría de Montaje Industrial',
     },
@@ -542,11 +553,46 @@ export default function DailyReportsPage() {
   }, [reports, search]);
 
   // ── Evidence upload ──
+  const MAX_PHOTOS    = 6;
+  const MAX_PHOTO_MB  = 6 * 1024 * 1024; // 6 MB per photo
+
   const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
 
-    const uploads = Array.from(files).map(async (file, i) => {
+    const allFiles      = Array.from(files);
+    const incomingPhotos = allFiles.filter(f => !f.type.includes('pdf'));
+    const incomingPdfs   = allFiles.filter(f =>  f.type.includes('pdf'));
+
+    // Reject oversized photos
+    const oversized = incomingPhotos.filter(f => f.size > MAX_PHOTO_MB);
+    oversized.forEach(f => toast({
+      variant: 'destructive',
+      title: 'Foto excede 6 MB',
+      description: `"${f.name}" no se agregará al informe.`,
+    }));
+
+    const validPhotos    = incomingPhotos.filter(f => f.size <= MAX_PHOTO_MB);
+    const currentPhotos  = evidence.filter(ev => ev.type === 'photo').length;
+    const availableSlots = Math.max(0, MAX_PHOTOS - currentPhotos);
+
+    if (validPhotos.length > availableSlots) {
+      toast({
+        variant: 'destructive',
+        title: 'Límite de fotos alcanzado',
+        description: `Máximo ${MAX_PHOTOS} fotos por informe. Solo se agregarán las primeras ${availableSlots}.`,
+      });
+    }
+
+    const approvedPhotos = validPhotos.slice(0, availableSlots);
+    const filesToProcess = [...approvedPhotos, ...incomingPdfs];
+
+    if (filesToProcess.length === 0) {
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+
+    const uploads = filesToProcess.map(async (file, i) => {
       const key  = `${file.name}_${i}`;
       const type = file.type.includes('pdf') ? 'pdf' : 'photo';
       setProgress(p => ({ ...p, [key]: 5 }));
@@ -1771,13 +1817,28 @@ export default function DailyReportsPage() {
                 {/* ── TAB: EVIDENCIA (global) ── */}
                 {tab === 'evidencia' && (
                   <div className="space-y-3">
+                    {/* Photo slot counter */}
+                    {(() => {
+                      const photoCount = evidence.filter(ev => ev.type === 'photo').length;
+                      const slots = MAX_PHOTOS - photoCount;
+                      return (
+                        <div className="flex items-center justify-between px-1">
+                          <span className="text-[9px] font-mono text-primary/40 uppercase tracking-wider">
+                            📷 Fotos: {photoCount} / {MAX_PHOTOS}
+                          </span>
+                          <span className={`text-[9px] font-mono ${slots === 0 ? 'text-red-400' : slots <= 2 ? 'text-amber-400' : 'text-green-400/70'}`}>
+                            {slots === 0 ? 'Sin cupos disponibles' : `${slots} cupo${slots !== 1 ? 's' : ''} disponible${slots !== 1 ? 's' : ''}`}
+                          </span>
+                        </div>
+                      );
+                    })()}
                     <div className="grid grid-cols-2 gap-2">
                       <div className="border-2 border-dashed border-primary/20 bg-primary/[0.02] rounded-lg p-6 text-center hover:bg-primary/5 hover:border-cyan-500/30 transition-all cursor-pointer group flex flex-col justify-center h-full"
                         onClick={() => fileRef.current?.click()}>
                         <input type="file" multiple accept="image/*,.pdf" ref={fileRef} className="hidden" onChange={handleUpload} />
                         <Camera className="w-7 h-7 text-primary/30 mx-auto mb-2 group-hover:text-cyan-400 transition-colors" />
                         <p className="text-[10px] font-mono text-primary/40 uppercase tracking-wider">Añadir Fotos / PDFs</p>
-                        <p className="text-[9px] font-mono text-primary/25 mt-1">Evidencia manual (Upload)</p>
+                        <p className="text-[9px] font-mono text-primary/25 mt-1">Máx. 6 fotos · 6 MB c/u</p>
                       </div>
 
                     </div>
