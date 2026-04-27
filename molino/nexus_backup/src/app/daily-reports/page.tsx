@@ -2031,45 +2031,50 @@ export default function DailyReportsPage() {
                               </p>
                             </div>
 
-                            {/* Action buttons — visible on hover */}
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                            {/* Action buttons — hover para usuarios normales, siempre visible para admin */}
+                            <div className="flex items-center gap-1 flex-shrink-0">
 
-                              {/* Vista Previa / Imprimir */}
-                              <Button size="sm"
-                                onClick={e => { e.stopPropagation(); setPrintingReport(report); }}
-                                variant="outline"
-                                className="h-7 text-[9px] border-orange-500/30 text-orange-400 hover:bg-orange-500 hover:text-white font-mono uppercase px-2"
-                                title="Vista previa e impresión ISO">
-                                <Printer className="w-3 h-3 mr-1" />PDF
-                              </Button>
-
-                              {/* Excel */}
-                              <Button size="sm"
-                                onClick={e => { e.stopPropagation(); exportDossier(report); }}
-                                variant="outline"
-                                className="h-7 text-[9px] border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-black font-mono uppercase px-2">
-                                <FileSpreadsheet className="w-3 h-3 mr-1" />XLS
-                              </Button>
-
-                              {/* Edit */}
-                              {(isRoot || isAuthor) && (
+                              {/* Botones hover — PDF / XLS / Editar */}
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {/* Vista Previa / Imprimir */}
                                 <Button size="sm"
-                                  onClick={e => { e.stopPropagation(); loadEdit(report); }}
+                                  onClick={e => { e.stopPropagation(); setPrintingReport(report); }}
                                   variant="outline"
-                                  className="h-7 text-[9px] border-amber-500/30 text-amber-400 hover:bg-amber-500 hover:text-black font-mono uppercase px-2">
-                                  <Edit2 className="w-3 h-3" />
+                                  className="h-7 text-[9px] border-orange-500/30 text-orange-400 hover:bg-orange-500 hover:text-white font-mono uppercase px-2"
+                                  title="Vista previa e impresión ISO">
+                                  <Printer className="w-3 h-3 mr-1" />PDF
                                 </Button>
-                              )}
 
-                              {/* Delete */}
+                                {/* Excel */}
+                                <Button size="sm"
+                                  onClick={e => { e.stopPropagation(); exportDossier(report); }}
+                                  variant="outline"
+                                  className="h-7 text-[9px] border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-black font-mono uppercase px-2">
+                                  <FileSpreadsheet className="w-3 h-3 mr-1" />XLS
+                                </Button>
+
+                                {/* Edit */}
+                                {(isRoot || isAuthor) && (
+                                  <Button size="sm"
+                                    onClick={e => { e.stopPropagation(); loadEdit(report); }}
+                                    variant="outline"
+                                    className="h-7 text-[9px] border-amber-500/30 text-amber-400 hover:bg-amber-500 hover:text-black font-mono uppercase px-2">
+                                    <Edit2 className="w-3 h-3" />
+                                  </Button>
+                                )}
+                              </div>
+
+                              {/* Botón Eliminar — siempre visible para admin */}
                               {isRoot && (
                                 <Button size="icon"
                                   onClick={e => { e.stopPropagation(); purge(report.id, report.metadata?.consecutiveId); }}
                                   variant="outline"
-                                  className="h-7 w-7 border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white">
+                                  title="Eliminar reporte (solo admin)"
+                                  className="h-7 w-7 border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white flex-shrink-0">
                                   <Trash2 className="w-3 h-3" />
                                 </Button>
                               )}
+
                               <ChevronDown className={`w-3 h-3 text-primary/30 transition-transform ml-1 ${open ? 'rotate-180' : ''}`} />
                             </div>
                           </div>
