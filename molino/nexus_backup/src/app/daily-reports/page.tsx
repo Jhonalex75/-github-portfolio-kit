@@ -14,7 +14,7 @@ import {
 import { uploadFileToStorage } from '@/firebase/storage-utils';
 import {
   collection, doc, query, orderBy, deleteDoc,
-  serverTimestamp, addDoc, setDoc,
+  serverTimestamp, addDoc, setDoc, getDoc,
 } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,8 @@ import { ContractorActivityDashboard } from '@/components/daily-reports/Contract
 import { ReportPrintPreview, PrintReportData } from '@/components/daily-reports/ReportPrintPreview';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
-const ROOT_UIDS = ['R3MVwE12nVMg128Kv6bdwJ6MKav1', 'Ew4plK83Z9O6c8J1dM3F0tP04A83'];
+const ROOT_UIDS   = ['R3MVwE12nVMg128Kv6bdwJ6MKav1', 'Ew4plK83Z9O6c8J1dM3F0tP04A83'];
+const ADMIN_EMAILS = ['jhonalexanderv@gmail.com', 'jhonalexandervm@outlook.com'];
 
 // ─── Contractors ─────────────────────────────────────────────────────────────
 const CONTRACTORS_CONFIG = [
@@ -289,9 +290,16 @@ const PROF_NAME    = 'MSC. ING. JHON ALEXANDER VALENCIA MARULANDA';
 const PROF_LICENSE = 'CL230-31983';
 const ADMIN_UID    = ROOT_UIDS[0]; // R3MVwE12nVMg128Kv6bdwJ6MKav1
 
-function resolveEmisorName(rawName: string): string {
-  if (rawName.toLowerCase().includes('william')) return 'ING. WILLIAM FERNEY SALAS FALLA';
-  return rawName || PROF_NAME;
+function formatProfName(raw: string): string {
+  const upper = raw.toUpperCase().trim();
+  if (!upper) return '';
+  return upper.startsWith('ING.') || upper.startsWith('MSC.') ? upper : `ING. ${upper}`;
+}
+
+function resolveEmisorName(profesionalName?: string, rawName?: string): string {
+  if (profesionalName) return profesionalName;
+  if (rawName?.toLowerCase().includes('william')) return 'ING. WILLIAM FERNEY SALAS FALLA';
+  return rawName ? formatProfName(rawName) : PROF_NAME;
 }
 
 // Resolves per-contractor data from a ReportDoc, with full legacy migration
@@ -391,7 +399,10 @@ function buildPrintData(r: ReportDoc): PrintReportData {
 
   const meta = r.metadata as Record<string, unknown>;
   const isAdminReport = r.metadata?.authorUid === ADMIN_UID;
-  const emisor = resolveEmisorName(r.metadata?.authorName || '');
+  const emisor = resolveEmisorName(
+    meta.profesionalName as string | undefined,
+    r.metadata?.authorName,
+  );
 
   return {
     documentControl: {
@@ -434,7 +445,10 @@ export default function DailyReportsPage() {
   const fileRef     = useRef<HTMLInputElement>(null);
 
   const [mounted, setMounted] = useState(false);
-  const isRoot = user && ROOT_UIDS.includes(user.uid);
+  const isRoot = user && (
+    ROOT_UIDS.includes(user.uid) ||
+    (user.email != null && ADMIN_EMAILS.includes(user.email.toLowerCase()))
+  );
 
   // ── Active contractor tab ──
   const [activeContractorId, setActiveContractorId] = useState<ContractorId>('HL-GISAICO');
@@ -478,9 +492,12 @@ export default function DailyReportsPage() {
   const [adminActivities, setAdminActivities] = useState<AdminActivity[]>(DEFAULT_ADMIN_ACTIVITIES.map(a => ({ ...a })));
   const [evidence,        setEvidence]        = useState<Evidence[]>([]);
   // ── Presentación / identificación adicional ──
-  const [ubicacion,    setUbicacion]    = useState('Marmato, Caldas, Colombia');
-  const [especialidad, setEspecialidad] = useState('Interventoría de Montaje Industrial');
-  const [novedades,    setNovedades]    = useState('');
+  const [ubicacion,       setUbicacion]       = useState('Marmato, Caldas, Colombia');
+  const [especialidad,    setEspecialidad]    = useState('Interventoría de Montaje Industrial');
+  const [novedades,       setNovedades]       = useState('');
+  const [profesionalName, setProfesionalName] = useState('');
+  // Guarda el valor cargado del perfil para restaurar al resetear
+  const profileProfNameRef = useRef('');
 
   // ── UI state ──
   const [submitting,      setSubmitting]      = useState(false);
@@ -529,6 +546,17 @@ export default function DailyReportsPage() {
     setMounted(true);
     if (!isUserLoading && (!user || user.isAnonymous)) router.push('/auth');
   }, [user, isUserLoading, router]);
+
+  // Carga el nombre profesional del perfil Firestore del usuario
+  useEffect(() => {
+    if (!firestore || !user || user.isAnonymous) return;
+    getDoc(doc(firestore, 'users', user.uid)).then(snap => {
+      const data = snap.data();
+      const saved = (data?.profesionalName as string) || '';
+      profileProfNameRef.current = saved;
+      setProfesionalName(saved);
+    });
+  }, [firestore, user]);
 
   // ── Real-time subscription ──
   const reportsQuery = useMemoFirebase(() => {
@@ -676,6 +704,7 @@ export default function DailyReportsPage() {
         weather,
         authorUid:          user!.uid,
         authorName:         user!.displayName || user!.email || 'Ing. Certificado',
+        profesionalName:    profesionalName || formatProfName(user!.displayName || user!.email || ''),
         frente:             'HL-GISAICO',
         proyectoRef:        'ARIS MINING — MIL24.001',
         status,
@@ -701,6 +730,15 @@ export default function DailyReportsPage() {
     };
   };
 
+  // Persiste el nombre profesional en el perfil del usuario
+  const saveProfName = useCallback(async (name: string) => {
+    if (!firestore || !user) return;
+    const formatted = formatProfName(name);
+    setProfesionalName(formatted);
+    profileProfNameRef.current = formatted;
+    await setDoc(doc(firestore, 'users', user.uid), { profesionalName: formatted }, { merge: true });
+  }, [firestore, user]);
+
   // ── Reset form ──
   const reset = () => {
     setContractorSections(DEFAULT_SECTIONS());
@@ -716,6 +754,7 @@ export default function DailyReportsPage() {
     setUbicacion('Marmato, Caldas, Colombia');
     setEspecialidad('Interventoría de Montaje Industrial');
     setNovedades('');
+    setProfesionalName(profileProfNameRef.current);
   };
 
   // ── Submit ──
@@ -724,6 +763,10 @@ export default function DailyReportsPage() {
     const hasActivities = [...enabledContractors].some(cid => contractorSections[cid].activities.trim());
     if (!hasActivities) {
       toast({ variant: 'destructive', title: 'CAMPOS OBLIGATORIOS', description: 'Complete al menos las Actividades de un contratista activo.' });
+      return;
+    }
+    if (editing && !isRoot && user?.uid !== editing.metadata?.authorUid) {
+      toast({ variant: 'destructive', title: 'SIN PERMISO', description: 'Solo el autor o un administrador puede editar este reporte.' });
       return;
     }
     setSubmitting(true);
@@ -862,6 +905,7 @@ export default function DailyReportsPage() {
     setUbicacion((meta.ubicacion as string) || 'Marmato, Caldas, Colombia');
     setEspecialidad((meta.especialidad as string) || 'Interventoría de Montaje Industrial');
     setNovedades((meta.novedades as string) || '');
+    setProfesionalName((meta.profesionalName as string) || profileProfNameRef.current);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -1144,6 +1188,24 @@ export default function DailyReportsPage() {
                         placeholder="Interventoría de Montaje Industrial"
                         className="bg-primary/5 border-primary/10 text-xs font-mono"
                       />
+                    </div>
+
+                    {/* Nombre Profesional */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] text-cyan-500/70 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                        👤 Nombre Profesional — Elaborado por
+                      </Label>
+                      <Input
+                        value={profesionalName}
+                        onChange={e => setProfesionalName(e.target.value.toUpperCase())}
+                        onBlur={e => saveProfName(e.target.value)}
+                        placeholder="ING. NOMBRES APELLIDOS"
+                        className="bg-cyan-500/5 border-cyan-500/20 text-xs font-mono uppercase tracking-wide"
+                      />
+                      <p className="text-[8px] font-mono text-cyan-500/35 leading-relaxed">
+                        Se precarga de tu perfil · aparece en rótulo superior e inferior del PDF y Excel
+                        {isRoot && <span className="text-amber-400/60"> · Matrícula profesional incluida solo para administrador</span>}
+                      </p>
                     </div>
 
                     {/* Novedades */}

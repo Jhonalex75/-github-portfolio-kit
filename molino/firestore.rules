@@ -38,7 +38,11 @@ service cloud.firestore {
     match /projects/default-nexus-project/daily_reports/{reportId} {
       allow read:   if isAuthenticated();
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+                       request.auth.uid == resource.data.metadata.authorUid ||
+                       request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
+                       isAdmin(request.auth.uid)
+                    );
       allow delete: if isAuthenticated() && (
                        request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
                        isAdmin(request.auth.uid)
@@ -128,11 +132,15 @@ service cloud.firestore {
         // Todo el equipo autenticado puede VER los reportes
         allow read: if isAuthenticated();
 
-        // Cualquier miembro autenticado puede CREAR (incluye addDoc inicial con solo timestamp)
+        // Cualquier miembro autenticado puede CREAR
         allow create: if isAuthenticated();
 
-        // El autor o un admin puede EDITAR
-        allow update: if isAuthenticated();
+        // Solo el autor o un admin puede EDITAR
+        allow update: if isAuthenticated() && (
+                         request.auth.uid == resource.data.metadata.authorUid ||
+                         request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
+                         isAdmin(request.auth.uid)
+                      );
 
         // Solo ROOT UIDs o admin puede BORRAR
         allow delete: if isAuthenticated() && (

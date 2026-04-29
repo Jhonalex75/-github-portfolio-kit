@@ -15,6 +15,7 @@ import {
   User, Calendar, Tag, ChevronDown, ChevronUp, Send, RefreshCw,
   Filter, ClipboardList, Activity, LayoutGrid, ListFilter,
 } from "lucide-react";
+import { useUser } from "@/firebase";
 import { useNonConformities } from "@/hooks/useNonConformities";
 import { useEquipmentRecords } from "@/hooks/useEquipmentRecords";
 import { NcDialog } from "@/components/NcDialog";
@@ -30,6 +31,8 @@ import {
   type OperationalStatus, AssemblyActivity, NewActivityData,
   type AssemblyStep, type PunchListItem,
 } from "@/lib/quality-types";
+
+const ROOT_UIDS = ['R3MVwE12nVMg128Kv6bdwJ6MKav1', 'Ew4plK83Z9O6c8J1dM3F0tP04A83'];
 
 // Top-level areas only for the area filter
 const TOP_AREAS = PLANT_AREAS.filter(a => a.parentCode === "1000");
@@ -304,6 +307,8 @@ function SeverityBar({ ncs }: { ncs: NonConformity[] }) {
 
 // ─── MAIN PAGE ───────────────────────────────────────────────────────────────
 export default function CalidadPage() {
+  const { user } = useUser();
+  const isRoot = user && ROOT_UIDS.includes(user.uid);
   const { ncs, loading, fetchNcs, createNc, updateNcStatus, deleteNc } = useNonConformities();
   const {
     records, activities, loading: actLoading, uploadProgress,
@@ -782,16 +787,18 @@ export default function CalidadPage() {
                                       Ver Detalle
                                     </Button>
                                   )}
-                                  {/* Botón eliminar NC */}
-                                  <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={() => handleDeleteNc(nc.nc_id)}
-                                    className="h-8 rounded-none border-red-500/30 text-red-500 hover:bg-red-600/20 hover:text-white font-display text-[9px] uppercase tracking-widest"
-                                    title="Eliminar NC"
-                                  >
-                                    <X className="w-3.5 h-3.5 mr-1" /> Eliminar
-                                  </Button>
+                                  {/* Botón eliminar NC — solo administrador */}
+                                  {isRoot && (
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => handleDeleteNc(nc.nc_id)}
+                                      className="h-8 rounded-none border-red-500/30 text-red-500 hover:bg-red-600/20 hover:text-white font-display text-[9px] uppercase tracking-widest"
+                                      title="Eliminar NC (solo administrador)"
+                                    >
+                                      <X className="w-3.5 h-3.5 mr-1" /> Eliminar
+                                    </Button>
+                                  )}
                                 </div>
                               </div>
 
@@ -845,7 +852,7 @@ export default function CalidadPage() {
           onDeleteActivity={deleteActivity}
           onUploadPhoto={uploadActivityPhoto}
           onCreateNc={handleCreateNcForEquip}
-          onDeleteNc={deleteNc}
+          onDeleteNc={isRoot ? deleteNc : undefined}
           onUpdateStep={updateAssemblyStep}
           onUploadStepPhoto={uploadStepPhoto}
           onAddPunchItem={addPunchItem}

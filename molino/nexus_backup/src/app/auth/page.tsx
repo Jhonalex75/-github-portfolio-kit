@@ -19,11 +19,18 @@ import {
 const OWNER_UID = "R3MVwE12nVMg128Kv6bdwJ6MKav1";
 const OWNER_EMAILS = ["jhonalexandervm@outlook.com", "jhonalexanderv@gmail.com"];
 
+function formatProfName(raw: string): string {
+  const upper = raw.toUpperCase().trim();
+  if (!upper) return '';
+  return upper.startsWith('ING.') ? upper : `ING. ${upper}`;
+}
+
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [profesionalName, setProfesionalName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -55,12 +62,17 @@ export default function AuthPage() {
         const userRef = doc(firestore, "users", userCredential.user.uid);
         const isRoot = userCredential.user.uid === OWNER_UID || OWNER_EMAILS.includes(email.toLowerCase());
         
+        const profName = isRoot
+          ? 'MSC. ING. JHON ALEXANDER VALENCIA MARULANDA'
+          : formatProfName(profesionalName || displayName);
+
         setDocumentNonBlocking(userRef, {
           id: userCredential.user.uid,
           displayName: displayName,
           email: email.toLowerCase(),
           role: isRoot ? "ROOT_MONITOR" : "ENGINEER",
           specialty: isRoot ? "System Monitor • Root Authority" : "Mechanical Engineer",
+          profesionalName: profName,
           createdAt: new Date().toISOString()
         }, { merge: true });
       }
@@ -113,13 +125,27 @@ export default function AuthPage() {
 
           <form onSubmit={handleAuth} className="space-y-6">
             {!isLogin && (
-              <Input 
-                placeholder="NOMBRE COMPLETO" 
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                className="bg-primary/5 border-primary/20 h-12 rounded-none font-mono-tech text-xs tracking-widest uppercase"
-                required
-              />
+              <>
+                <Input
+                  placeholder="NOMBRE COMPLETO"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="bg-primary/5 border-primary/20 h-12 rounded-none font-mono-tech text-xs tracking-widest uppercase"
+                  required
+                />
+                <div className="space-y-1">
+                  <Input
+                    placeholder="NOMBRES Y APELLIDOS (para documentos)"
+                    value={profesionalName}
+                    onChange={(e) => setProfesionalName(e.target.value.toUpperCase())}
+                    onBlur={(e) => setProfesionalName(formatProfName(e.target.value))}
+                    className="bg-primary/5 border-cyan-500/20 h-12 rounded-none font-mono-tech text-xs tracking-widest uppercase"
+                  />
+                  <p className="text-[8px] font-mono text-cyan-500/40 uppercase tracking-widest px-1">
+                    Nombre Profesional — aparecerá como ING. [NOMBRE] en reportes y documentos
+                  </p>
+                </div>
+              </>
             )}
             <Input 
               type="email"

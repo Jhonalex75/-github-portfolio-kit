@@ -4,6 +4,7 @@ import { saveAs } from 'file-saver';
 // ─── Professional Data ────────────────────────────────────────────────────────
 const PROF_LICENSE  = 'CL230-31983';
 const PROF_NAME     = 'MSC. ING. JHON ALEXANDER VALENCIA MARULANDA';
+const ADMIN_UID     = 'R3MVwE12nVMg128Kv6bdwJ6MKav1';
 const PROF_ROLE     = 'Senior Mechanical Engineer — Monitor Maestro';
 const CERT_ISO      = 'ISO 9001:2015 — Cert. No. CO23-1234-QMS';
 const SYSTEM_VER    = 'NEXUS Command Center v2.1 — SGS Quality Portal';
@@ -17,6 +18,7 @@ export interface DailyReportData {
     weather: string;
     authorUid: string;
     authorName: string;
+    profesionalName?: string;
     frente: string;
     proyectoRef?: string;
     status?: string;
@@ -152,9 +154,10 @@ function addDocumentHeader(
   cols: number,
 ) {
   const lastCol = colLetter(cols);
-  const docCode  = `DOC-NEXUS-${report.metadata.consecutiveId}`;
-  const authorName  = report.metadata.authorName || PROF_NAME;
-  const ubicacion   = report.metadata.ubicacion  || 'Marmato, Caldas, Colombia';
+  const docCode      = `DOC-NEXUS-${report.metadata.consecutiveId}`;
+  const isAdmin      = report.metadata.authorUid === ADMIN_UID;
+  const authorName   = report.metadata.profesionalName || report.metadata.authorName || PROF_NAME;
+  const ubicacion    = report.metadata.ubicacion   || 'Marmato, Caldas, Colombia';
   const especialidad = report.metadata.especialidad || 'Interventoría de Montaje Industrial';
 
   // ── Row 1: 3-zone logo row ──
@@ -248,7 +251,9 @@ function addDocumentHeader(
   ws.mergeCells(`A${emisorRow}:${lastCol}${emisorRow}`);
   const emisorCell = ws.getCell(`A${emisorRow}`);
   emisorCell.value =
-    `Código: ${docCode}   Rev: 01   Elaborado por: ${authorName}   Mat.: ${PROF_LICENSE}   Especialidad: ${especialidad}`;
+    `Código: ${docCode}   Rev: 01   Elaborado por: ${authorName}` +
+    (isAdmin ? `   Mat.: ${PROF_LICENSE}` : '') +
+    `   Especialidad: ${especialidad}`;
   Object.assign(emisorCell, dat(C.midGray, C_SGS_GRAY, 8));
   emisorCell.alignment = { horizontal: 'left', vertical: 'middle' };
   ws.getRow(emisorRow).height = 16;
@@ -257,7 +262,9 @@ function addDocumentHeader(
 }
 
 // ─── Common footer (last row) ─────────────────────────────────────────────────
-function addFooter(ws: ExcelJS.Worksheet, cols: number) {
+function addFooter(ws: ExcelJS.Worksheet, cols: number, report?: DailyReportData) {
+  const footerAuthor = report?.metadata.profesionalName || report?.metadata.authorName || PROF_NAME;
+  const isAdminFoot  = report?.metadata.authorUid === ADMIN_UID;
   ws.addRow([]);
   const rn = ws.rowCount;
   const lastCol = String.fromCharCode(64 + cols);
@@ -265,7 +272,9 @@ function addFooter(ws: ExcelJS.Worksheet, cols: number) {
   const cell = ws.getCell(`A${rn}`);
   cell.value =
     `Documento generado electrónicamente por ${SYSTEM_VER}  |  ` +
-    `${PROF_NAME}  |  Mat. Prof.: ${PROF_LICENSE}  |  ${CERT_ISO}  |  ` +
+    `${footerAuthor}` +
+    (isAdminFoot ? `  |  Mat. Prof.: ${PROF_LICENSE}` : '') +
+    `  |  ${CERT_ISO}  |  ` +
     `${new Date().toLocaleString('es-CO', { dateStyle: 'full', timeStyle: 'medium' })}`;
   Object.assign(cell, {
     font: { italic: true, size: 8, color: { argb: '999E9E9E' }, name: 'Calibri' },
@@ -450,7 +459,7 @@ async function buildSheetReporteDiario(wb: ExcelJS.Workbook, report: DailyReport
     }
   }
 
-  addFooter(ws, 2);
+  addFooter(ws, 2, report);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -700,7 +709,7 @@ function buildSheetContratistas(wb: ExcelJS.Workbook, report: DailyReportData) {
     ws.getRow(ws.rowCount).height = 22;
   }
 
-  addFooter(ws, COLS);
+  addFooter(ws, COLS, report);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -797,7 +806,7 @@ function buildSheetAvances(wb: ExcelJS.Workbook, report: DailyReportData) {
     ws.getRow(ws.rowCount).height = 22;
   }
 
-  addFooter(ws, 14);
+  addFooter(ws, 14, report);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -915,7 +924,7 @@ function buildSheetSeguridad(wb: ExcelJS.Workbook, report: DailyReportData) {
     row.height = 18;
   });
 
-  addFooter(ws, 2);
+  addFooter(ws, 2, report);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1256,7 +1265,7 @@ function buildSheetNarrativasContratistas(wb: ExcelJS.Workbook, report: DailyRep
     }
   }
 
-  addFooter(ws, COLS);
+  addFooter(ws, COLS, report);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1393,7 +1402,7 @@ function buildSheetMetrajesSoldadura(wb: ExcelJS.Workbook, report: DailyReportDa
   ws.getCell(`D${gtRn}`).font = { bold: true, name: 'Calibri', size: 13, color: { argb: 'FFFFD700' } };
   ws.getRow(gtRn).height = 30;
 
-  addFooter(ws, COLS);
+  addFooter(ws, COLS, report);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
