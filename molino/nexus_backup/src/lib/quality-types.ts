@@ -225,6 +225,8 @@ export interface PunchListItem {
   id: string;
   equipment_tag: string;
   item_number?: string;          // Ej. PEND-SAG-001
+  step_number?: number;          // Assembly step this item belongs to
+  step_title?: string;           // Denormalized step title for display
   description: string;
   discipline: PunchDiscipline;
   priority: PunchPriority;

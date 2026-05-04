@@ -41,6 +41,7 @@ import {
   X,
   Save,
   ChevronRight,
+  ChevronDown,
   ArrowLeft,
   Eye,
   Wrench,
@@ -53,6 +54,9 @@ import {
   ImageIcon,
   TrendingUp,
   CheckSquare,
+  Pencil,
+  History,
+  Download,
 } from 'lucide-react';
 import {
   useUser,
@@ -71,6 +75,8 @@ import {
   writeBatch,
   query,
   where,
+  arrayUnion,
+  getDocs,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { cn } from '@/lib/utils';
@@ -81,6 +87,14 @@ import Image from 'next/image';
 // ─── Plan de Montaje — Tipos y datos estáticos ────────────────────────────────
 type EtapaEstado = 'Pendiente' | 'En Proceso' | 'Completado';
 
+interface HistorialEtapa {
+  fecha: string;
+  estado: EtapaEstado;
+  responsable: string;
+  observaciones: string;
+  actualizadoPor: string;
+}
+
 interface EtapaMontaje {
   id?: string;
   numero_etapa: number;
@@ -90,125 +104,194 @@ interface EtapaMontaje {
   estado: EtapaEstado;
   responsable: string;
   observaciones: string;
+  historial?: HistorialEtapa[];
+  partida_bmp?: string;
 }
 
 type PunchCategoria = 'A' | 'B' | 'C';
-type PunchEstado = 'ABIERTO' | 'CERRADO';
+type PunchEstado = 'ABIERTO' | 'EN_GESTION' | 'CERRADO';
+
+interface EvidenciaItem {
+  id: string;
+  tipo: 'foto' | 'pdf';
+  nombre: string;
+  url: string;
+  subido_por: string;
+  fecha_subida: string;
+  descripcion?: string;
+}
 
 interface PunchItem {
   id?: string;
   numero_item: string;
+  etapa_numero?: number | null;
+  etapa_titulo?: string | null;
+  titulo: string;
   categoria: PunchCategoria;
   descripcion: string;
   responsable: string;
   disciplina: string;
   estado: PunchEstado;
-  fecha_limite: string;
+  fecha_limite: string | null;
+  evidencias?: EvidenciaItem[];
+  ncr_referencia?: string | null;
+  fecha_cierre?: string | null;
+  cerrado_por?: string | null;
   createdAt: string;
   authorId: string;
   authorName: string;
 }
 
 const PLANES_MONTAJE: Record<string, Omit<EtapaMontaje, 'id'>[]> = {
+  // ── ESP-CON-001 · Espesador de Concentrado HRT-035 ───────────────────────
+  // Ref. BMP: LM-ED-MEL-3410-3400-0001  Partida M10 — ESPESADOR
+  // Ref. Procedimiento: LM-HLGS-C-1000-3940-PRO-0034 + Manual Metso ES-LX-OU500911029_R0_IOMS
+  // Pesos: Montaje Cuerpo Terminado 70% (et. 1-7) | Verificación Tolerancias 10% | Pruebas Funcionales 10% | Protocolos Entrega 10%
+  // Avance al 30/04/2026: 20% (etapas 1+2+3 completadas: 5+5+10)
   'ESP-CON-001': [
     {
       numero_etapa: 1,
-      titulo: 'Recepción, Inspección y Trazabilidad',
-      descripcion: 'Verificación de componentes según packing list, inspección de preservación, y revisión dimensional de placas base.',
-      peso_porcentual: 3,
+      titulo: 'Actividades Preliminares',
+      descripcion:
+        'Recepción e inspección de todos los componentes contra packing list del fabricante Metso (ES-LX-OU500911029_R0_IOMS). ' +
+        'Verificación de estado de preservación; almacenamiento de componentes engomados protegidos de rayos UV. ' +
+        'Verificación topográfica de fundaciones civiles y pernos de anclaje (altura ±10 mm, distancia entre pernos ±3 mm a ±6 mm). ' +
+        'Liberación formal de anclajes y áreas. Planificación de izajes. ' +
+        'Ref.: LM-HLGS-C-1000-3940-FRM-0005 (Topografía) · Proc.: LM-HLGS-C-1000-3940-PRO-0034.',
+      peso_porcentual: 5,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-A · Montaje Cuerpo Terminado (70%)',
     },
     {
       numero_etapa: 2,
-      titulo: 'Verificación Topográfica Inicial',
-      descripcion: 'Liberación topográfica de la fundación civil, pedestales y pernos de anclaje (Planos Metso OU602289964).',
-      peso_porcentual: 2,
+      titulo: 'Instalación de Underflow (Bota de Descarga Inferior)',
+      descripcion:
+        'Pre-ensamble e instalación del Underflow Boot (cono de descarga inferior) sobre la base civil. ' +
+        'Verificación de orientación de boquillas de underflow respecto a la brida de descarga. ' +
+        'Alineación y torqueo de pernos de anclaje conforme a tabla de torques del fabricante. ' +
+        'Este componente establece la referencia geométrica central para todas las etapas posteriores.',
+      peso_porcentual: 5,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-A · Montaje Cuerpo Terminado (70%)',
     },
     {
       numero_etapa: 3,
-      titulo: 'Montaje de Estructura Soporte',
-      descripcion: 'Izaje e instalación de columnas (radiales y centrales), arriostramientos cruzados y nivelación del anillo de compresión.',
-      peso_porcentual: 15,
+      titulo: 'Instalación de Columnas / Estructura Soporte',
+      descripcion:
+        'Instalación del Anillo de Compresión: verificación de orientación de boquillas y pedestales, geometría radial en 16 puntos cada 22,5°. ' +
+        'Izaje, posicionamiento y verticalización de columnas (tolerancia estricta L/500). ' +
+        'Instalación de arriostramientos cruzados (Cross Bracing) y elementos de rigidización. ' +
+        'Nivelación y torqueo progresivo de pernos de anclaje según tabla de torques del fabricante.',
+      peso_porcentual: 10,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-A · Montaje Cuerpo Terminado (70%)',
     },
     {
       numero_etapa: 4,
-      titulo: 'Montaje de Piso y Pared del Tanque',
-      descripcion: 'Ensamblaje en suelo y elevación de segmentos. Atornillado progresivo con squirter washers y aplicación de sellante en juntas.',
+      titulo: 'Instalación de Piso y Pared del Tanque',
+      descripcion:
+        'Pre-ensamble en suelo de hasta 8 secciones de piso para minimizar trabajo en alturas. Instalación de vigas radiales sobre las columnas. ' +
+        'Montaje de segmentos de piso y segmentos superiores del manto (Shell Plates). ' +
+        'NOTA: todos los pernos se instalan en condición snug tight (sin torque final en esta fase). ' +
+        'Atornillado definitivo: prueba de lubricación de pernos (giro 300°) y torque final con arandelas Squirter Washers (1:25 pernos) método giro de tuerca. ' +
+        'Preparación de superficies (Sika Aktivator-205) y sellado de juntas con Sikaflex 221. ' +
+        'Ref.: LM-HLGS-C-1000-3940-FRM-0021 (Torque).',
       peso_porcentual: 20,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-A · Montaje Cuerpo Terminado (70%)',
     },
     {
       numero_etapa: 5,
-      titulo: 'Montaje del Mecanismo de Giro y Elevación',
-      descripcion: 'Instalación del reductor de velocidades, anillo giratorio, sistema hidráulico de accionamiento (SAI) y elevador de rastras Mega.',
-      peso_porcentual: 15,
+      titulo: 'Instalación del Puente',
+      descripcion:
+        'Ensamble de módulos del puente en suelo y verificación de contraflecha (Precamber positivo 55–65 mm). ' +
+        'Izaje del puente completo; centrado con 4 plomadas respecto al underflow (offsets Z1, Z2, Z3, Z4 — tolerancia ±20 mm entre ellas). ' +
+        'Descenso e instalación del Drive Unit sobre la brida central con torque en estrella de 1 440 Nm.',
+      peso_porcentual: 10,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-A · Montaje Cuerpo Terminado (70%)',
     },
     {
       numero_etapa: 6,
-      titulo: 'Ensamble e Instalación del Puente',
-      descripcion: 'Armado en piso del puente (precamber), torqueo, izaje en tándem o simple e instalación sobre el tanque.',
+      titulo: 'Instalación de Mecanismo de Giro y Rastras',
+      descripcion:
+        'Instalación vertical del Drive Shaft, soportado temporalmente 100 mm por encima de la cota final (desviación máxima 5 mm). ' +
+        'Montaje de brazos cortos y largos (Short & Long Rake Arms) y puntales (Struts) con Shim Packs preliminares. ' +
+        'Instalación del Steady Pin y Steady Bearing; holgura nominal del rodamiento: 25 mm (pasador sin contacto con rodamiento). ' +
+        'Cálculo y ajuste del offset del pasador según marcas de contacto; torque final del Steady Pin. ' +
+        'Rotación del mecanismo 360° mediante HPU para verificar giro libre. ' +
+        'Ref.: LM-HLGS-C-1000-3940-FRM-0110 (Alineación).',
       peso_porcentual: 10,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-A · Montaje Cuerpo Terminado (70%)',
     },
     {
       numero_etapa: 7,
-      titulo: 'Instalación de Pozo de Alimentación (Feedwell)',
-      descripcion: 'Pre-ensamble e instalación del cuerpo del Metso Reactorwell™, puertos Autodil™ e instalación de cabezal de floculante.',
+      titulo: 'Instalación de Componentes de Alimentación',
+      descripcion:
+        'Pre-ensamble e instalación del Feedwell (Metso Reactorwell™) suspendido debajo del puente. ' +
+        'Instalación de cono deflector, scraper y accesorios misceláneos; verificación de holguras. ' +
+        'Conexión de tubería de alimentación, caja de transición, tuberías de floculante y aspersores. ' +
+        'Nivelación final de brazos de rastra: diferencia máxima en punta de brazos largos ≤ 25 mm y brazos cortos ≤ 15 mm (ajuste definitivo de Shim Packs).',
       peso_porcentual: 10,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-A · Montaje Cuerpo Terminado (70%)',
     },
     {
       numero_etapa: 8,
-      titulo: 'Instalación de Componentes Internos',
-      descripcion: 'Montaje de brazos de rastra (2 largos, 2 cortos), palas, steady bearing (rodamiento del pasador fijo) inferior y scraper.',
+      titulo: 'Verificación de Tolerancias',
+      descripcion:
+        'Verificación de todas las tolerancias mecánicas del espesador ensamblado: verticalidad de columnas (L/500), nivel del tanque, ' +
+        'holguras de rastras (brazos largos ≤ 25 mm, brazos cortos ≤ 15 mm), contraflecha del puente (55–65 mm), offset del Steady Pin y torqueo estructural. ' +
+        'Aprobación de protocolos QC: LM-HLGS-C-1000-3940-FRM-0005 (Topografía), FRM-0110 (Alineación), FRM-0021 (Torque). ' +
+        'PARTIDA BMP INDEPENDIENTE — 10% del total. Ref.: LM-ED-MEL-3410-3400-0001.',
       peso_porcentual: 10,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-B · Verificación de Tolerancias (10%)',
     },
     {
       numero_etapa: 9,
-      titulo: 'Nivelación, Torqueo Final y Tuberías',
-      descripcion: 'Nivelación final de brazos de rastra (verificación de tolerancias), cableado e interconexión de Unidad de Potencia Hidráulica (HPU).',
-      peso_porcentual: 5,
+      titulo: 'Pruebas Funcionales',
+      descripcion:
+        'Pre-comisionamiento en seco: giro manual de rastras para verificar libre movimiento; prueba HPU (levantamiento hidráulico de emergencia y verificación de sentido de rotación). ' +
+        'Prueba de estanqueidad: llenado con agua mínimo 24 h, inspección de fugas en juntas, boquillas y fondo. ' +
+        'Verificación de torque de rastra girando sumergido; medición de torque de arranque vs. nominal del fabricante. ' +
+        'PARTIDA BMP INDEPENDIENTE — 10% del total. Ref.: LM-ED-MEL-3410-3400-0001.',
+      peso_porcentual: 10,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
+      partida_bmp: 'M10-C · Pruebas Funcionales (10%)',
     },
     {
       numero_etapa: 10,
-      titulo: 'Pre-Comisionamiento (Prueba en Seco)',
-      descripcion: 'Giro manual de rastras, encendido de bomba hidráulica, verificación de levantamiento hidráulico y calibración del torque.',
-      peso_porcentual: 5,
+      titulo: 'Protocolos de Entrega del Equipo',
+      descripcion:
+        'Reemplazo del aceite de prueba del reductor y HPU por aceite definitivo según especificación del fabricante. Entrega de tarjeta de lubricación. ' +
+        'Entrega formal del dossier de calidad: ITPs firmados, registros de torqueo, protocolos de topografía y alineación, certificado de prueba hidráulica y manual de O&M Metso. ' +
+        'HITO FINAL — Mechanical Completion. No completado hasta firma de todos los protocolos por SGS|ETSA y Aris Mining. ' +
+        'PARTIDA BMP INDEPENDIENTE — 10% del total. Ref.: LM-ED-MEL-3410-3400-0001.',
+      peso_porcentual: 10,
       estado: 'Pendiente',
       responsable: '',
       observaciones: '',
-    },
-    {
-      numero_etapa: 11,
-      titulo: 'Pre-Comisionamiento (Prueba Húmeda)',
-      descripcion: 'Llenado del tanque con agua para prueba de fugas estática (24 h) y verificación del torque de rastra girando sumergido.',
-      peso_porcentual: 5,
-      estado: 'Pendiente',
-      responsable: '',
-      observaciones: '',
+      partida_bmp: 'M10-D · Protocolos de Entrega (10%)',
     },
   ],
 };
@@ -448,7 +531,108 @@ const PUNCH_CATEGORIA_COLORS: Record<PunchCategoria, string> = {
   C: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
 };
 
+const PUNCH_ESTADO_COLORS: Record<PunchEstado, string> = {
+  ABIERTO:    'bg-red-500/10 text-red-400 border-red-500/30',
+  EN_GESTION: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
+  CERRADO:    'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+};
+
+const PUNCH_ESTADO_LABELS: Record<PunchEstado, string> = {
+  ABIERTO:    'Abierto',
+  EN_GESTION: 'En Gestión',
+  CERRADO:    'Cerrado',
+};
+
 const PUNCH_DISCIPLINAS = ['Mecánica', 'Eléctrica', 'Civil', 'Instrumentación', 'Tubería', 'Otro'];
+
+// ─── Sub-componente: fila de ítem de punch list ────────────────────────────────
+function PunchItemRow({
+  item,
+  isOwner,
+  onView,
+  onUpdateEstado,
+}: {
+  item: PunchItem & { id: string };
+  isOwner: boolean;
+  onView: () => void;
+  onUpdateEstado: (id: string, estado: PunchEstado) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        'border p-3 flex items-start justify-between gap-3 hover:border-primary/30 transition-colors cursor-pointer',
+        item.estado === 'CERRADO'
+          ? 'border-emerald-500/15 bg-emerald-500/5 opacity-70'
+          : item.estado === 'EN_GESTION'
+          ? 'border-yellow-500/15 bg-yellow-500/5'
+          : 'border-primary/10 bg-slate-950/40'
+      )}
+      onClick={onView}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+          <Badge className={cn('rounded-none text-[7px] font-display border px-1.5', PUNCH_CATEGORIA_COLORS[item.categoria])}>
+            {item.categoria}
+          </Badge>
+          <Badge className={cn('rounded-none text-[7px] font-display border px-1.5', PUNCH_ESTADO_COLORS[item.estado])}>
+            {PUNCH_ESTADO_LABELS[item.estado]}
+          </Badge>
+          <span className="text-[8px] font-mono-tech text-primary/40">{item.numero_item}</span>
+          <Badge variant="outline" className="rounded-none text-[7px] font-display border-primary/20 text-primary/40 px-1.5">
+            {item.disciplina}
+          </Badge>
+          {item.evidencias && item.evidencias.length > 0 && (
+            <span className="flex items-center gap-0.5 text-[8px] font-mono-tech text-primary/50">
+              <Camera className="w-2.5 h-2.5" />{item.evidencias.length}
+            </span>
+          )}
+          {item.ncr_referencia && (
+            <Badge variant="outline" className="rounded-none text-[7px] font-display border-red-500/30 text-red-400/60 px-1.5">
+              NCR: {item.ncr_referencia}
+            </Badge>
+          )}
+        </div>
+        <p className="text-[10px] font-mono-tech font-bold text-foreground/90">{item.titulo}</p>
+        {item.descripcion && (
+          <p className="text-[9px] font-mono-tech text-muted-foreground leading-relaxed line-clamp-2 mt-0.5">{item.descripcion}</p>
+        )}
+        <div className="flex items-center gap-3 mt-1 text-[8px] text-muted-foreground font-mono-tech">
+          <span>{item.responsable}</span>
+          {item.fecha_limite && <><span>·</span><span className="text-yellow-400/70">Vence: {item.fecha_limite}</span></>}
+          {item.fecha_cierre && <><span>·</span><span className="text-emerald-400/60">Cerrado: {item.fecha_cierre}</span></>}
+        </div>
+      </div>
+      {/* Acciones rápidas (para owner) */}
+      {isOwner && item.estado !== 'CERRADO' && (
+        <div className="flex-shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {item.estado === 'ABIERTO' && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-1.5 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-[8px]"
+              onClick={() => onUpdateEstado(item.id, 'EN_GESTION')}
+              title="Marcar En Gestión"
+            >
+              <Clock className="w-3 h-3" />
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+            onClick={() => onUpdateEstado(item.id, 'CERRADO')}
+            title="Cerrar pendiente"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      )}
+      {(!isOwner || item.estado === 'CERRADO') && (
+        <Eye className="w-3 h-3 text-muted-foreground/30 flex-shrink-0 mt-1" />
+      )}
+    </div>
+  );
+}
 
 const OWNER_UID = 'R3MVwE12nVMg128Kv6bdwJ6MKav1';
 const OWNER_EMAILS = ['jhonalexandervm@outlook.com', 'jhonalexanderv@gmail.com'];
@@ -541,11 +725,27 @@ export default function QualityNCSPage() {
   // Punch List / Pendientes
   const [isAddingPendiente, setIsAddingPendiente] = useState(false);
   const [pendienteSaving, setPendienteSaving] = useState(false);
+  const [pendTitulo, setPendTitulo] = useState('');
   const [pendDescripcion, setPendDescripcion] = useState('');
   const [pendCategoria, setPendCategoria] = useState<PunchCategoria>('B');
   const [pendResponsable, setPendResponsable] = useState('');
   const [pendDisciplina, setPendDisciplina] = useState('Mecánica');
   const [pendFechaLimite, setPendFechaLimite] = useState('');
+  const [pendEtapaNumero, setPendEtapaNumero] = useState<number | null>(null);
+  const [pendNcrReferencia, setPendNcrReferencia] = useState('');
+  const [pendEvidencias, setPendEvidencias] = useState<EvidenciaItem[]>([]);
+  const [pendUploadingFiles, setPendUploadingFiles] = useState(false);
+  const [viewPunchItem, setViewPunchItem] = useState<(PunchItem & { id: string }) | null>(null);
+  const [expandedEtapas, setExpandedEtapas] = useState<Set<string>>(new Set());
+  const [expandedHistoriales, setExpandedHistoriales] = useState<Set<string>>(new Set());
+  const [punchExporting, setPunchExporting] = useState(false);
+  const pendFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Plan de Montaje — inline edit + historial
+  const [editingEtapaId, setEditingEtapaId] = useState<string | null>(null);
+  const [editResponsable, setEditResponsable] = useState('');
+  const [editObservaciones, setEditObservaciones] = useState('');
+  const [planExporting, setPlanExporting] = useState(false);
 
   useEffect(() => {
     if (!isUserLoading && (!user || user.isAnonymous)) {
@@ -592,9 +792,30 @@ export default function QualityNCSPage() {
     return collection(firestore, 'equipment', selectedEquipo.tag, 'plan_montaje');
   }, [firestore, selectedEquipo]);
   const { data: planRaw, isLoading: planLoading } = useCollection(planMontajeQuery);
-  const planMontaje: (EtapaMontaje & { id: string })[] | null = planRaw
-    ? ([...planRaw].sort((a: any, b: any) => a.numero_etapa - b.numero_etapa) as any)
-    : null;
+
+  // Merge: estructura siempre desde el template de código (PLANES_MONTAJE / BMP),
+  // estado editable (estado, responsable, observaciones, historial) desde Firestore.
+  // Así el plan refleja el template actualizado sin necesidad de Re-init.
+  const planMontaje = useMemo((): (EtapaMontaje & { id: string })[] | null => {
+    if (!selectedEquipo) return null;
+    const template = getBmpPlan(selectedEquipo);
+    if (!template || template.length === 0) return null;
+    const fsMap = new Map<number, any>();
+    if (planRaw) {
+      for (const e of planRaw as any[]) fsMap.set(e.numero_etapa, e);
+    }
+    return template.map((etapa) => {
+      const fs = fsMap.get(etapa.numero_etapa);
+      return {
+        ...etapa,
+        id: fs?.id ?? `etapa_${String(etapa.numero_etapa).padStart(2, '0')}`,
+        estado:       (fs?.estado       ?? etapa.estado)       as EtapaEstado,
+        responsable:  fs?.responsable   ?? etapa.responsable,
+        observaciones:fs?.observaciones ?? etapa.observaciones,
+        historial:    fs?.historial     ?? [],
+      };
+    }) as (EtapaMontaje & { id: string })[];
+  }, [selectedEquipo, planRaw]);
 
   const avanceCalculado = useMemo(() => {
     if (!planMontaje || planMontaje.length === 0) return 0;
@@ -783,13 +1004,23 @@ export default function QualityNCSPage() {
     if (!plan || plan.length === 0) return;
     setPlanSeeding(true);
     try {
-      const batch = writeBatch(firestore);
+      // Delete all existing plan_montaje docs (clean start — prevents duplicates from addDoc)
+      const colRef = collection(firestore, 'equipment', selectedEquipo.tag, 'plan_montaje');
+      const existing = await getDocs(colRef);
+      if (existing.docs.length > 0) {
+        const delBatch = writeBatch(firestore);
+        existing.docs.forEach((d) => delBatch.delete(d.ref));
+        await delBatch.commit();
+      }
+      // Seed with fixed document IDs (etapa_01, etapa_02…) — safe to re-run
+      const seedBatch = writeBatch(firestore);
       plan.forEach((etapa) => {
-        const ref = doc(collection(firestore, 'equipment', selectedEquipo.tag, 'plan_montaje'));
-        batch.set(ref, { ...etapa, createdAt: new Date().toISOString() });
+        const fixedId = `etapa_${String(etapa.numero_etapa).padStart(2, '0')}`;
+        const ref = doc(firestore, 'equipment', selectedEquipo.tag, 'plan_montaje', fixedId);
+        seedBatch.set(ref, { ...etapa, historial: [], createdAt: new Date().toISOString() });
       });
       const equipRef = doc(firestore, 'equipment', selectedEquipo.tag);
-      batch.set(equipRef, {
+      seedBatch.set(equipRef, {
         tag: selectedEquipo.tag,
         nombre: selectedEquipo.nombre,
         proyecto: 'Marmato Lower Mine Expansion',
@@ -801,8 +1032,8 @@ export default function QualityNCSPage() {
         fecha_creacion: new Date().toISOString(),
         fecha_actualizacion: new Date().toISOString(),
       }, { merge: true });
-      await batch.commit();
-      toast({ title: 'PLAN INICIALIZADO', description: `${plan.length} etapas de montaje cargadas en Firestore.` });
+      await seedBatch.commit();
+      toast({ title: 'PLAN INICIALIZADO', description: `${plan.length} etapas cargadas con IDs fijos. Datos anteriores eliminados.` });
     } catch (err: any) {
       toast({ variant: 'destructive', title: 'ERROR', description: err?.message });
     } finally {
@@ -811,12 +1042,23 @@ export default function QualityNCSPage() {
   };
 
   const handleUpdateEtapa = async (etapaId: string, changes: Partial<EtapaMontaje>) => {
-    if (!firestore || !selectedEquipo || !planMontaje) return;
+    if (!firestore || !selectedEquipo || !planMontaje || !user) return;
     setPlanUpdating(etapaId);
     try {
-      await updateDoc(
+      const etapa = planMontaje.find((e) => e.id === etapaId);
+      if (!etapa) return;
+      const historialEntry: HistorialEtapa = {
+        fecha: new Date().toISOString(),
+        estado: changes.estado ?? etapa.estado,
+        responsable: changes.responsable ?? etapa.responsable ?? '',
+        observaciones: changes.observaciones ?? etapa.observaciones ?? '',
+        actualizadoPor: userData?.displayName || user.displayName || 'Engineer',
+      };
+      // setDoc con merge crea el doc si no existe (no requiere Re-init previo)
+      await setDoc(
         doc(firestore, 'equipment', selectedEquipo.tag, 'plan_montaje', etapaId),
-        { ...changes, updatedAt: new Date().toISOString() }
+        { ...changes, historial: arrayUnion(historialEntry), updatedAt: new Date().toISOString() },
+        { merge: true }
       );
       const updated = planMontaje.map((e) => (e.id === etapaId ? { ...e, ...changes } : e));
       const newAvance = Math.round(
@@ -830,6 +1072,7 @@ export default function QualityNCSPage() {
         fecha_actualizacion: new Date().toISOString(),
       });
       toast({ title: 'ETAPA ACTUALIZADA', description: `Avance global: ${newAvance}%` });
+      setEditingEtapaId(null);
     } catch (err: any) {
       toast({ variant: 'destructive', title: 'ERROR', description: err?.message });
     } finally {
@@ -837,27 +1080,89 @@ export default function QualityNCSPage() {
     }
   };
 
+  const handleExportPlanMontajeExcel = async () => {
+    if (!selectedEquipo || !planMontaje || planMontaje.length === 0) return;
+    setPlanExporting(true);
+    try {
+      const { exportPlanMontajeExcel } = await import('@/lib/excel-plan-montaje');
+      await exportPlanMontajeExcel(selectedEquipo.tag, selectedEquipo.nombre, planMontaje, punchItems ?? []);
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'ERROR EXCEL', description: err?.message });
+    } finally {
+      setPlanExporting(false);
+    }
+  };
+
   // ── Handlers Punch List ──────────────────────────────────────────────────────
   const resetPendienteForm = () => {
+    setPendTitulo('');
     setPendDescripcion('');
     setPendCategoria('B');
     setPendResponsable('');
     setPendDisciplina('Mecánica');
     setPendFechaLimite('');
+    setPendEtapaNumero(null);
+    setPendNcrReferencia('');
+    setPendEvidencias([]);
+  };
+
+  const handlePunchFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedEquipo || !e.target.files || !storage || !user) return;
+    const files = Array.from(e.target.files);
+    const MAX_EV = 10;
+    if (pendEvidencias.length + files.length > MAX_EV) {
+      toast({ variant: 'destructive', title: 'LÍMITE', description: `Máximo ${MAX_EV} archivos de evidencia.` });
+      return;
+    }
+    setPendUploadingFiles(true);
+    try {
+      const nuevas: EvidenciaItem[] = [];
+      for (const file of files) {
+        const tipo: 'foto' | 'pdf' = file.type === 'application/pdf' ? 'pdf' : 'foto';
+        const path = `equipment/${selectedEquipo.tag}/punch/${Date.now()}_${file.name}`;
+        const url = await uploadToStorage(file, path);
+        nuevas.push({
+          id: `ev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          tipo,
+          nombre: file.name,
+          url,
+          subido_por: userData?.displayName || user?.displayName || 'Engineer',
+          fecha_subida: new Date().toISOString(),
+        });
+      }
+      setPendEvidencias((prev) => [...prev, ...nuevas]);
+      toast({ title: 'EVIDENCIAS SUBIDAS', description: `${nuevas.length} archivo(s) cargado(s) en Cloud Storage.` });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'ERROR UPLOAD', description: err?.message });
+    } finally {
+      setPendUploadingFiles(false);
+      if (pendFileInputRef.current) pendFileInputRef.current.value = '';
+    }
   };
 
   const handleSavePendiente = async () => {
     if (!firestore || !selectedEquipo || !user) return;
-    if (!pendDescripcion.trim() || !pendResponsable.trim()) {
-      toast({ variant: 'destructive', title: 'CAMPOS REQUERIDOS', description: 'Complete descripción y responsable.' });
+    if (!pendTitulo.trim()) {
+      toast({ variant: 'destructive', title: 'CAMPO REQUERIDO', description: 'El título del pendiente es obligatorio.' });
+      return;
+    }
+    if (!pendResponsable.trim()) {
+      toast({ variant: 'destructive', title: 'CAMPO REQUERIDO', description: 'Complete el responsable.' });
       return;
     }
     setPendienteSaving(true);
     try {
       const count = (punchItems?.length || 0) + 1;
-      const numero = `PL-${selectedEquipo.tag}-${String(count).padStart(3, '0')}`;
+      const etapaTag = pendEtapaNumero ? `E${String(pendEtapaNumero).padStart(2, '0')}` : 'GEN';
+      const numero = `PL-${selectedEquipo.tag}-${etapaTag}-${String(count).padStart(3, '0')}`;
+      const etapaTitulo = pendEtapaNumero
+        ? planMontaje?.find((e) => e.numero_etapa === pendEtapaNumero)?.titulo ?? null
+        : null;
       await addDoc(collection(firestore, 'equipment', selectedEquipo.tag, 'pendientes'), {
         numero_item: numero,
+        etapa_numero: pendEtapaNumero ?? null,
+        etapa_titulo: etapaTitulo,
+        titulo: pendTitulo.trim(),
         categoria: pendCategoria,
         descripcion: pendDescripcion.trim(),
         responsable: pendResponsable.trim(),
@@ -865,11 +1170,14 @@ export default function QualityNCSPage() {
         estado: 'ABIERTO' as PunchEstado,
         fecha_limite: pendFechaLimite || null,
         fecha_cierre: null,
+        cerrado_por: null,
+        evidencias: pendEvidencias,
+        ncr_referencia: pendNcrReferencia.trim() || null,
         createdAt: new Date().toISOString(),
         authorId: user.uid,
         authorName: userData?.displayName || user.displayName || 'Engineer',
       });
-      toast({ title: 'PENDIENTE REGISTRADO', description: `${numero} agregado al punch list.` });
+      toast({ title: 'PENDIENTE REGISTRADO', description: `${numero} — "${pendTitulo.trim()}"` });
       resetPendienteForm();
       setIsAddingPendiente(false);
     } catch (err: any) {
@@ -879,16 +1187,43 @@ export default function QualityNCSPage() {
     }
   };
 
-  const handleClosePendiente = async (itemId: string) => {
+  const handleUpdatePendienteEstado = async (itemId: string, nuevoEstado: PunchEstado) => {
     if (!firestore || !selectedEquipo) return;
     try {
-      await updateDoc(doc(firestore, 'equipment', selectedEquipo.tag, 'pendientes', itemId), {
-        estado: 'CERRADO' as PunchEstado,
-        fecha_cierre: new Date().toISOString().split('T')[0],
-      });
-      toast({ title: 'ÍTEM CERRADO', description: 'Pendiente marcado como resuelto.' });
+      const updates: Record<string, any> = {
+        estado: nuevoEstado,
+        updatedAt: new Date().toISOString(),
+      };
+      if (nuevoEstado === 'CERRADO') {
+        updates.fecha_cierre = new Date().toISOString().split('T')[0];
+        updates.cerrado_por = userData?.displayName || user?.displayName || 'Engineer';
+      } else {
+        updates.fecha_cierre = null;
+        updates.cerrado_por = null;
+      }
+      await updateDoc(doc(firestore, 'equipment', selectedEquipo.tag, 'pendientes', itemId), updates);
+      toast({ title: PUNCH_ESTADO_LABELS[nuevoEstado], description: `Estado actualizado correctamente.` });
+      if (viewPunchItem?.id === itemId) setViewPunchItem((prev) => prev ? { ...prev, estado: nuevoEstado } : null);
     } catch (err: any) {
       toast({ variant: 'destructive', title: 'ERROR', description: err?.message });
+    }
+  };
+
+  const handleExportPunchListExcel = async () => {
+    if (!selectedEquipo || !punchItems) return;
+    setPunchExporting(true);
+    try {
+      const { exportPunchListNCS } = await import('@/lib/excel-punch-list-ncs');
+      await exportPunchListNCS(
+        selectedEquipo.tag,
+        selectedEquipo.nombre,
+        planMontaje ?? [],
+        punchItems,
+      );
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'ERROR EXCEL', description: err?.message });
+    } finally {
+      setPunchExporting(false);
     }
   };
 
@@ -1199,35 +1534,56 @@ export default function QualityNCSPage() {
                     </Card>
                   )}
 
-                  {/* ── Plan de Montaje ────────────────────────────────────── */}
+                  {/* ── Plan de Montaje + Punch List Integrado ─────────────── */}
                   {selectedEquipo && (
                     <Card className="rounded-none border-primary/10 bg-slate-900/50">
                       <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="text-[11px] font-display font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                            <TrendingUp className="w-3.5 h-3.5" /> Plan de Montaje
+                            <TrendingUp className="w-3.5 h-3.5" /> Plan de Montaje · Punch List
                           </CardTitle>
                           <p className="text-[8px] font-display uppercase tracking-widest text-primary/40 mt-0.5">
                             BMP · {getEquipoBmpLabel(selectedEquipo)}
                           </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {planMontaje && planMontaje.length > 0 && punchItems && punchItems.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-none font-display font-black uppercase tracking-widest text-[9px] border-primary/20 h-7 px-3"
+                              onClick={handleExportPunchListExcel}
+                              disabled={punchExporting}
+                            >
+                              {punchExporting ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
+                              Punch XLS
+                            </Button>
+                          )}
                           {planMontaje && planMontaje.length > 0 && (
-                            <p className="text-[9px] text-muted-foreground font-mono-tech mt-0.5">
-                              Avance global: <span className="text-primary font-bold">{avanceCalculado}%</span>
-                              {' '}— {planMontaje.filter(e => e.estado === 'Completado').length}/{planMontaje.length} etapas completadas
-                            </p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-none font-display font-black uppercase tracking-widest text-[9px] border-primary/20 h-7 px-3"
+                              onClick={handleExportPlanMontajeExcel}
+                              disabled={planExporting}
+                            >
+                              {planExporting ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
+                              Plan XLS
+                            </Button>
+                          )}
+                          {isOwner && !planLoading && (
+                            <Button
+                              size="sm"
+                              className="rounded-none font-display font-black uppercase tracking-widest text-[9px] bg-primary text-primary-foreground h-7 px-3"
+                              onClick={handleSeedPlan}
+                              disabled={planSeeding}
+                              title={planMontaje && planMontaje.length > 0 ? 'Re-inicializar plan (borra datos actuales)' : 'Inicializar plan de montaje'}
+                            >
+                              {planSeeding ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Plus className="w-3 h-3 mr-1" />}
+                              {planMontaje && planMontaje.length > 0 ? 'Re-init' : 'Inicializar'}
+                            </Button>
                           )}
                         </div>
-                        {isOwner && planMontaje !== null && planMontaje.length === 0 && !planLoading && (
-                          <Button
-                            size="sm"
-                            className="rounded-none font-display font-black uppercase tracking-widest text-[9px] bg-primary text-primary-foreground h-7 px-3"
-                            onClick={handleSeedPlan}
-                            disabled={planSeeding}
-                          >
-                            {planSeeding ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Plus className="w-3 h-3 mr-1" />}
-                            Inicializar Plan
-                          </Button>
-                        )}
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
                         {planLoading ? (
@@ -1242,92 +1598,417 @@ export default function QualityNCSPage() {
                           </div>
                         ) : (
                           <>
-                            {/* Barra de progreso global */}
-                            <div className="mb-4 p-3 bg-slate-950/60 border border-primary/10">
-                              <div className="flex items-center justify-between mb-1.5">
-                                <span className="text-[8px] font-display font-black uppercase tracking-widest text-primary/50">Avance Global</span>
-                                <span className="text-[13px] font-display font-black text-primary">{avanceCalculado}%</span>
+                            {/* ── Dashboard de progreso ──────────────────────── */}
+                            <div className="mb-4 p-3 bg-slate-950/80 border border-primary/10">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-baseline gap-2">
+                                  <span className="text-[28px] font-display font-black text-primary leading-none">{avanceCalculado}%</span>
+                                  <span className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40">Avance Global</span>
+                                  {isOwner && !planLoading && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="ml-3 rounded-none font-display font-black uppercase tracking-widest text-[9px] border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 h-6 px-2"
+                                      onClick={handleSeedPlan}
+                                      disabled={planSeeding}
+                                      title={planMontaje && planMontaje.length > 0 ? 'Re-inicializar plan con etapas BMP actualizadas (borra datos actuales)' : 'Inicializar plan de montaje'}
+                                    >
+                                      {planSeeding ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Plus className="w-3 h-3 mr-1" />}
+                                      {planMontaje && planMontaje.length > 0 ? 'Re-init Plan BMP' : 'Inicializar Plan'}
+                                    </Button>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-5">
+                                  {[
+                                    { label: 'Completadas', count: planMontaje.filter(e => e.estado === 'Completado').length, color: 'text-emerald-400', dot: 'bg-emerald-500' },
+                                    { label: 'En Proceso',  count: planMontaje.filter(e => e.estado === 'En Proceso').length,  color: 'text-yellow-400',  dot: 'bg-yellow-500'  },
+                                    { label: 'Pendientes',  count: planMontaje.filter(e => e.estado === 'Pendiente').length,   color: 'text-slate-400',   dot: 'bg-slate-600'   },
+                                    { label: 'Punch Abiertos', count: (punchItems ?? []).filter(p => p.estado !== 'CERRADO').length, color: 'text-red-400', dot: 'bg-red-500' },
+                                  ].map(({ label, count, color, dot }) => (
+                                    <div key={label} className="text-center min-w-[44px]">
+                                      <div className={cn('text-[18px] font-display font-black leading-none', color)}>{count}</div>
+                                      <div className="flex items-center justify-center gap-1 mt-0.5">
+                                        <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', dot)} />
+                                        <span className="text-[6.5px] font-display uppercase tracking-widest text-muted-foreground">{label}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                              <div className="h-1.5 bg-slate-800 w-full">
-                                <div
-                                  className="h-full bg-primary transition-all duration-700"
-                                  style={{ width: `${avanceCalculado}%` }}
-                                />
+                              {/* Barra segmentada por etapa */}
+                              <div className="flex h-4 w-full gap-px">
+                                {planMontaje.map((etapa) => {
+                                  const segColor =
+                                    etapa.estado === 'Completado' ? 'bg-emerald-500' :
+                                    etapa.estado === 'En Proceso' ? 'bg-yellow-500' :
+                                    'bg-slate-700/60';
+                                  return (
+                                    <div
+                                      key={etapa.id}
+                                      className={cn('h-full relative group cursor-default transition-all duration-500 overflow-hidden', segColor)}
+                                      style={{ width: `${etapa.peso_porcentual}%` }}
+                                      title={`Etapa ${etapa.numero_etapa}: ${etapa.titulo} — ${etapa.peso_porcentual}% — ${etapa.estado}`}
+                                    >
+                                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20">
+                                        <span className="text-[6px] font-display font-black text-white leading-none drop-shadow">
+                                          {etapa.peso_porcentual}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                              <div className="flex gap-4 mt-2">
-                                {(['Pendiente', 'En Proceso', 'Completado'] as EtapaEstado[]).map((est) => (
-                                  <span key={est} className="text-[8px] font-mono-tech text-muted-foreground">
-                                    <span className="font-bold text-foreground/60">
-                                      {planMontaje.filter(e => e.estado === est).length}
-                                    </span> {est}
+                              {/* Leyenda */}
+                              <div className="flex items-center gap-4 mt-1.5">
+                                {[
+                                  { label: 'Completado', color: 'bg-emerald-500' },
+                                  { label: 'En Proceso (50%)', color: 'bg-yellow-500' },
+                                  { label: 'Pendiente', color: 'bg-slate-700/60' },
+                                ].map(({ label, color }) => (
+                                  <span key={label} className="flex items-center gap-1 text-[7px] font-mono-tech text-muted-foreground">
+                                    <span className={cn('w-2 h-2 inline-block flex-shrink-0', color)} />
+                                    {label}
                                   </span>
                                 ))}
+                                <span className="ml-auto text-[7px] font-mono-tech text-muted-foreground/50">
+                                  Hover sobre segmento para ver peso %
+                                </span>
                               </div>
                             </div>
 
-                            {/* Tabla de etapas */}
-                            <div className="space-y-1.5">
-                              {planMontaje.map((etapa) => (
-                                <div
-                                  key={etapa.id}
-                                  className={cn(
-                                    'border p-3 flex items-start justify-between gap-3 transition-colors',
-                                    etapa.estado === 'Completado'
-                                      ? 'border-emerald-500/20 bg-emerald-500/5'
-                                      : etapa.estado === 'En Proceso'
-                                      ? 'border-yellow-500/20 bg-yellow-500/5'
-                                      : 'border-primary/8 bg-slate-950/40'
-                                  )}
-                                >
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                                      <span className="text-[8px] font-display font-black text-primary/30 w-4 flex-shrink-0">
+                            {/* ── Accordion de etapas ──────────────────────────── */}
+                            <div className="space-y-1">
+                              {planMontaje.map((etapa) => {
+                                const etapaPunch = (punchItems ?? []).filter(p => p.etapa_numero === etapa.numero_etapa);
+                                const etapaAbiertos = etapaPunch.filter(p => p.estado !== 'CERRADO').length;
+                                const isExpanded = expandedEtapas.has(etapa.id ?? '');
+                                const isHistorialExpanded = expandedHistoriales.has(etapa.id ?? '');
+                                const isEditing = editingEtapaId === etapa.id;
+                                const historial = [...(etapa.historial ?? [])].sort((a, b) => b.fecha.localeCompare(a.fecha));
+
+                                const toggleExpand = () => {
+                                  const id = etapa.id ?? '';
+                                  setExpandedEtapas(prev => {
+                                    const next = new Set(prev);
+                                    next.has(id) ? next.delete(id) : next.add(id);
+                                    return next;
+                                  });
+                                };
+                                const toggleHistorial = (e: React.MouseEvent) => {
+                                  e.stopPropagation();
+                                  const id = etapa.id ?? '';
+                                  setExpandedHistoriales(prev => {
+                                    const next = new Set(prev);
+                                    next.has(id) ? next.delete(id) : next.add(id);
+                                    return next;
+                                  });
+                                };
+
+                                return (
+                                  <div key={etapa.id} className={cn(
+                                    'border transition-colors',
+                                    etapa.estado === 'Completado' ? 'border-emerald-500/20' :
+                                    etapa.estado === 'En Proceso' ? 'border-yellow-500/20' :
+                                    'border-primary/10'
+                                  )}>
+                                    {/* ── Fila cabecera: siempre visible, clic expande ── */}
+                                    <div
+                                      className={cn(
+                                        'flex items-center gap-2 px-3 py-2.5 cursor-pointer transition-colors select-none',
+                                        etapa.estado === 'Completado' ? 'bg-emerald-500/5 hover:bg-emerald-500/10' :
+                                        etapa.estado === 'En Proceso' ? 'bg-yellow-500/5 hover:bg-yellow-500/10' :
+                                        'bg-slate-950/60 hover:bg-slate-900/80'
+                                      )}
+                                      onClick={toggleExpand}
+                                    >
+                                      {/* Barra lateral de estado */}
+                                      <div className={cn(
+                                        'w-0.5 self-stretch flex-shrink-0 rounded-full',
+                                        etapa.estado === 'Completado' ? 'bg-emerald-500' :
+                                        etapa.estado === 'En Proceso' ? 'bg-yellow-500' :
+                                        'bg-slate-600'
+                                      )} />
+                                      {/* Número */}
+                                      <span className="text-[10px] font-display font-black text-primary/25 w-5 flex-shrink-0 text-right tabular-nums">
                                         {String(etapa.numero_etapa).padStart(2, '0')}
                                       </span>
-                                      <span className="text-[10px] font-mono-tech font-bold text-foreground/90">
+                                      {/* Título */}
+                                      <span className="text-[10px] font-mono-tech font-bold text-foreground/90 flex-1 min-w-0 truncate">
                                         {etapa.titulo}
                                       </span>
-                                      <Badge
-                                        className="rounded-none text-[7px] font-display uppercase tracking-widest border bg-primary/10 text-primary/60 border-primary/20 px-1.5"
-                                      >
-                                        {etapa.peso_porcentual}%
-                                      </Badge>
+                                      {/* Badges + acciones */}
+                                      <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                        <Badge className="rounded-none text-[7px] font-display border bg-primary/10 text-primary/50 border-primary/15 px-1.5">
+                                          {etapa.peso_porcentual}%
+                                        </Badge>
+                                        <Badge className={cn('rounded-none text-[7px] font-display border px-1.5', ETAPA_ESTADO_COLORS[etapa.estado])}>
+                                          {etapa.estado}
+                                        </Badge>
+                                        {/* Punch badge */}
+                                        {etapaPunch.length > 0 ? (
+                                          <span className={cn(
+                                            'flex items-center gap-1 px-1.5 text-[7px] font-display uppercase tracking-widest border',
+                                            etapaAbiertos > 0
+                                              ? 'bg-red-500/10 text-red-400 border-red-500/25'
+                                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                          )}>
+                                            <CheckSquare className="w-2.5 h-2.5" />
+                                            {etapaAbiertos > 0 ? `${etapaAbiertos} abierto${etapaAbiertos > 1 ? 's' : ''}` : `${etapaPunch.length} ✓`}
+                                          </span>
+                                        ) : (
+                                          <span className="flex items-center gap-1 px-1.5 text-[7px] font-display uppercase tracking-widest border border-primary/10 text-primary/25">
+                                            <CheckSquare className="w-2.5 h-2.5" />
+                                            0
+                                          </span>
+                                        )}
+                                        {/* Historial */}
+                                        {historial.length > 0 && (
+                                          <button
+                                            onClick={toggleHistorial}
+                                            className={cn(
+                                              'flex items-center gap-1 px-1.5 text-[7px] font-display uppercase tracking-widest border transition-colors',
+                                              isHistorialExpanded
+                                                ? 'bg-primary/15 text-primary/80 border-primary/30'
+                                                : 'bg-primary/5 text-primary/35 border-primary/12 hover:bg-primary/10'
+                                            )}
+                                          >
+                                            <History className="w-2.5 h-2.5" />
+                                            {historial.length}
+                                          </button>
+                                        )}
+                                        {/* Editar */}
+                                        {user && !isEditing && (
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setEditingEtapaId(etapa.id ?? null); setEditResponsable(etapa.responsable || ''); setEditObservaciones(etapa.observaciones || ''); }}
+                                            className="p-1 text-primary/25 hover:text-primary/70 hover:bg-primary/10 transition-colors"
+                                            title="Editar responsable y observaciones"
+                                          >
+                                            <Pencil className="w-3 h-3" />
+                                          </button>
+                                        )}
+                                        {/* Selector de estado */}
+                                        <Select
+                                          value={etapa.estado}
+                                          onValueChange={(v) => etapa.id && handleUpdateEtapa(etapa.id, { estado: v as EtapaEstado })}
+                                          disabled={!!planUpdating || !user}
+                                        >
+                                          <SelectTrigger className="h-6 w-28 rounded-none bg-slate-900/80 border-primary/15 font-mono-tech text-[9px]">
+                                            {planUpdating === etapa.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <SelectValue />}
+                                          </SelectTrigger>
+                                          <SelectContent className="rounded-none bg-slate-950 border-primary/20">
+                                            {(['Pendiente', 'En Proceso', 'Completado'] as EtapaEstado[]).map((e) => (
+                                              <SelectItem key={e} value={e} className="font-mono-tech text-[11px]">{e}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        {/* Agregar punch */}
+                                        {user && (
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); resetPendienteForm(); setPendEtapaNumero(etapa.numero_etapa); setIsAddingPendiente(true); }}
+                                            className="p-1 text-orange-400/60 hover:text-orange-300 hover:bg-orange-500/10 transition-colors"
+                                            title={`Agregar pendiente a Etapa ${etapa.numero_etapa}`}
+                                          >
+                                            <Plus className="w-3 h-3" />
+                                          </button>
+                                        )}
+                                      </div>
+                                      {/* Chevron expander */}
+                                      <ChevronDown
+                                        onClick={(e) => { e.stopPropagation(); toggleExpand(); }}
+                                        className={cn('w-3.5 h-3.5 text-primary/30 transition-transform duration-200 flex-shrink-0 ml-1 cursor-pointer', isExpanded && 'rotate-180')}
+                                      />
                                     </div>
-                                    <p className="text-[9px] font-mono-tech text-muted-foreground leading-relaxed line-clamp-2 ml-6">
-                                      {etapa.descripcion}
-                                    </p>
-                                    {etapa.observaciones && (
-                                      <p className="text-[9px] font-mono-tech text-primary/60 italic mt-1 ml-6 border-l border-primary/20 pl-2">
-                                        {etapa.observaciones}
-                                      </p>
+
+                                    {/* ── Panel expandido ─────────────────────────── */}
+                                    {isExpanded && (
+                                      <div className="border-t border-primary/10">
+                                        {/* Descripción técnica */}
+                                        <div className="px-5 py-2.5 bg-slate-950/50">
+                                          <p className="text-[9px] font-mono-tech text-muted-foreground leading-relaxed">
+                                            {etapa.descripcion}
+                                          </p>
+                                          {/* Inline edit o datos */}
+                                          {isEditing ? (
+                                            <div className="mt-2 space-y-2 border border-primary/20 bg-slate-900/60 p-2">
+                                              <div className="grid grid-cols-2 gap-2">
+                                                <div className="space-y-1">
+                                                  <label className="text-[7px] font-display font-black uppercase tracking-widest text-primary/40">Responsable</label>
+                                                  <Input value={editResponsable} onChange={(e) => setEditResponsable(e.target.value)} className="rounded-none bg-slate-950 border-primary/20 font-mono-tech text-[10px] h-7" placeholder="Nombre del responsable" />
+                                                </div>
+                                                <div className="space-y-1">
+                                                  <label className="text-[7px] font-display font-black uppercase tracking-widest text-primary/40">Observaciones</label>
+                                                  <Input value={editObservaciones} onChange={(e) => setEditObservaciones(e.target.value)} className="rounded-none bg-slate-950 border-primary/20 font-mono-tech text-[10px] h-7" placeholder="Observaciones de progreso..." />
+                                                </div>
+                                              </div>
+                                              <div className="flex gap-1.5">
+                                                <Button size="sm" className="rounded-none h-6 px-2 text-[8px] font-display uppercase tracking-widest bg-primary text-primary-foreground" onClick={() => etapa.id && handleUpdateEtapa(etapa.id, { responsable: editResponsable.trim(), observaciones: editObservaciones.trim() })} disabled={!!planUpdating}>
+                                                  {planUpdating === etapa.id ? <Loader2 className="w-2.5 h-2.5 animate-spin mr-1" /> : <Save className="w-2.5 h-2.5 mr-1" />}
+                                                  Guardar
+                                                </Button>
+                                                <Button size="sm" variant="ghost" className="rounded-none h-6 px-2 text-[8px] font-display uppercase tracking-widest text-muted-foreground" onClick={() => setEditingEtapaId(null)}>
+                                                  Cancelar
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div className="flex flex-wrap gap-4 mt-1.5">
+                                              {etapa.responsable && (
+                                                <span className="text-[8px] font-mono-tech text-primary/55">
+                                                  <span className="text-primary/25 mr-1">Resp:</span>{etapa.responsable}
+                                                </span>
+                                              )}
+                                              {etapa.observaciones && (
+                                                <span className="text-[8px] font-mono-tech text-primary/45 italic border-l border-primary/20 pl-2">
+                                                  {etapa.observaciones}
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* ── Punch list integrado ─────────────────── */}
+                                        <div className="border-t border-primary/10 bg-slate-950/70 px-5 py-3">
+                                          <div className="flex items-center justify-between mb-2.5">
+                                            <span className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40 flex items-center gap-1.5">
+                                              <CheckSquare className="w-2.5 h-2.5 text-primary/40" />
+                                              Punch List
+                                              {etapaPunch.length > 0 && (
+                                                <span className={cn('font-normal normal-case tracking-normal ml-1', etapaAbiertos > 0 ? 'text-red-400/70' : 'text-emerald-400/70')}>
+                                                  — {etapaAbiertos > 0 ? `${etapaAbiertos} abierto${etapaAbiertos > 1 ? 's' : ''} · ${etapaPunch.length} total` : `${etapaPunch.length} cerrado${etapaPunch.length > 1 ? 's' : ''} ✓`}
+                                                </span>
+                                              )}
+                                            </span>
+                                            {user && (
+                                              <Button size="sm" variant="ghost" className="h-6 px-2 text-orange-400/70 hover:text-orange-300 hover:bg-orange-500/10 text-[8px] font-display uppercase tracking-widest" onClick={() => { resetPendienteForm(); setPendEtapaNumero(etapa.numero_etapa); setIsAddingPendiente(true); }}>
+                                                <Plus className="w-2.5 h-2.5 mr-1" /> Agregar
+                                              </Button>
+                                            )}
+                                          </div>
+                                          {etapaPunch.length === 0 ? (
+                                            <p className="text-[9px] font-mono-tech text-muted-foreground/40 text-center py-3 border border-dashed border-primary/10">
+                                              Sin pendientes — Etapa limpia
+                                            </p>
+                                          ) : (
+                                            <div className="space-y-1">
+                                              {etapaPunch.map((item) => (
+                                                <PunchItemRow
+                                                  key={item.id}
+                                                  item={item as PunchItem & { id: string }}
+                                                  isOwner={isOwner}
+                                                  onView={() => setViewPunchItem(item as PunchItem & { id: string })}
+                                                  onUpdateEstado={handleUpdatePendienteEstado}
+                                                />
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* ── Panel historial (toggle independiente) ─── */}
+                                    {isHistorialExpanded && historial.length > 0 && (
+                                      <div className="border-t border-primary/10 bg-slate-900/30 px-5 py-3">
+                                        <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/30 mb-2">
+                                          Historial de Actualizaciones
+                                        </p>
+                                        <div className="space-y-1.5">
+                                          {historial.map((h, idx) => (
+                                            <div key={idx} className="flex items-center gap-3 text-[9px] font-mono-tech border-l-2 border-primary/15 pl-2">
+                                              <span className="text-muted-foreground/50 flex-shrink-0 w-28 text-[8px]">
+                                                {new Date(h.fecha).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                              </span>
+                                              <Badge className={cn('rounded-none text-[7px] font-display border px-1 flex-shrink-0', ETAPA_ESTADO_COLORS[h.estado])}>
+                                                {h.estado}
+                                              </Badge>
+                                              {h.responsable && <span className="text-foreground/60 flex-shrink-0">{h.responsable}</span>}
+                                              {h.observaciones && <span className="text-muted-foreground italic flex-1 truncate">— {h.observaciones}</span>}
+                                              <span className="text-muted-foreground/30 flex-shrink-0 text-[8px]">{h.actualizadoPor}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
                                     )}
                                   </div>
-                                  <div className="flex-shrink-0">
-                                    <Select
-                                      value={etapa.estado}
-                                      onValueChange={(v) => etapa.id && handleUpdateEtapa(etapa.id, { estado: v as EtapaEstado })}
-                                      disabled={!!planUpdating || !user}
-                                    >
-                                      <SelectTrigger className="h-7 w-32 rounded-none bg-slate-900 border-primary/20 font-mono-tech text-[10px]">
-                                        {planUpdating === etapa.id
-                                          ? <Loader2 className="w-3 h-3 animate-spin" />
-                                          : <SelectValue />
-                                        }
-                                      </SelectTrigger>
-                                      <SelectContent className="rounded-none bg-slate-950 border-primary/20">
-                                        {(['Pendiente', 'En Proceso', 'Completado'] as EtapaEstado[]).map((e) => (
-                                          <SelectItem key={e} value={e} className="font-mono-tech text-[11px]">
-                                            {e}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
+
+                            {/* Punch items sin etapa asignada */}
+                            {punchItems && punchItems.filter(p => !p.etapa_numero).length > 0 && (
+                              <div className="mt-3 border border-dashed border-primary/15 px-4 py-3">
+                                <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/30 mb-2 flex items-center gap-1.5">
+                                  <CheckSquare className="w-2.5 h-2.5" /> Sin Etapa Asignada
+                                  <span className="font-normal normal-case tracking-normal text-muted-foreground ml-1">
+                                    — {punchItems.filter(p => !p.etapa_numero).length} ítem(s)
+                                  </span>
+                                </p>
+                                <div className="space-y-1">
+                                  {punchItems.filter(p => !p.etapa_numero).map((item) => (
+                                    <PunchItemRow
+                                      key={item.id}
+                                      item={item as PunchItem & { id: string }}
+                                      isOwner={isOwner}
+                                      onView={() => setViewPunchItem(item as PunchItem & { id: string })}
+                                      onUpdateEstado={handleUpdatePendienteEstado}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </>
                         )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* ── (bloque eliminado: Punch List ya integrado en accordion) ── */}
+                  {false && selectedEquipo && (
+                    <Card className="rounded-none border-primary/10 bg-slate-900/50">
+                      <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
+                        <div>
+                          <CardTitle className="text-[11px] font-display font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                            <CheckSquare className="w-3.5 h-3.5" /> (INTEGRADO EN PLAN)
+                          </CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-4">
+                        {/* BLOQUE ANTIGUO — eliminado: el punch list ahora vive dentro del accordion de etapas */}
+                        {(() => {
+                          const sinEtapa = (punchItems ?? []).filter(p => !p.etapa_numero);
+                          const porEtapa = (planMontaje ?? []).map(et => ({
+                            etapa: et,
+                            items: (punchItems ?? []).filter(p => p.etapa_numero === et.numero_etapa),
+                          })).filter(g => g.items.length > 0);
+
+                          return (
+                            <>
+                              {porEtapa.map(({ etapa, items }) => (
+                                <div key={etapa.id} className="space-y-1.5">
+                                  <div className="flex items-center gap-2 pb-1">
+                                    <span className="text-[8px] font-display font-black uppercase tracking-widest text-primary/50">
+                                      Etapa {String(etapa.numero_etapa).padStart(2, '0')} — {etapa.titulo}
+                                    </span>
+                                    <div className="flex-1 h-px bg-primary/10" />
+                                  </div>
+                                  {items.map((item) => (
+                                    <PunchItemRow key={item.id} item={item} isOwner={isOwner} onView={() => setViewPunchItem(item as PunchItem & { id: string })} onUpdateEstado={handleUpdatePendienteEstado} />
+                                  ))}
+                                </div>
+                              ))}
+                              {sinEtapa.length > 0 && (
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center gap-2 pb-1">
+                                    <span className="text-[8px] font-display font-black uppercase tracking-widest text-primary/30">Sin Etapa Asignada</span>
+                                    <div className="flex-1 h-px bg-primary/10" />
+                                  </div>
+                                  {sinEtapa.map((item) => (
+                                    <PunchItemRow key={item.id} item={item} isOwner={isOwner} onView={() => setViewPunchItem(item as PunchItem & { id: string })} onUpdateEstado={handleUpdatePendienteEstado} />
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </CardContent>
                     </Card>
                   )}
@@ -1388,101 +2069,6 @@ export default function QualityNCSPage() {
                       )}
                     </CardContent>
                   </Card>
-                  {/* ── Punch List / Pendientes ─────────────────────────── */}
-                  {selectedEquipo && (
-                    <Card className="rounded-none border-primary/10 bg-slate-900/50">
-                      <CardHeader className="pb-2 pt-4 px-4 flex flex-row items-center justify-between">
-                        <div>
-                          <CardTitle className="text-[11px] font-display font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                            <CheckSquare className="w-3.5 h-3.5" /> Punch List
-                          </CardTitle>
-                          {punchItems && punchItems.length > 0 && (
-                            <p className="text-[9px] text-muted-foreground font-mono-tech mt-0.5">
-                              <span className="text-red-400 font-bold">{punchItems.filter(p => p.estado === 'ABIERTO').length}</span> abiertos
-                              {' '}· <span className="text-emerald-400 font-bold">{punchItems.filter(p => p.estado === 'CERRADO').length}</span> cerrados
-                            </p>
-                          )}
-                        </div>
-                        {user && (
-                          <Button
-                            size="sm"
-                            className="rounded-none font-display font-black uppercase tracking-widest text-[9px] bg-primary text-primary-foreground h-7 px-3"
-                            onClick={() => { resetPendienteForm(); setIsAddingPendiente(true); }}
-                          >
-                            <Plus className="w-3 h-3 mr-1" /> Agregar
-                          </Button>
-                        )}
-                      </CardHeader>
-                      <CardContent className="px-4 pb-4">
-                        {punchLoading ? (
-                          <div className="flex items-center justify-center py-8">
-                            <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                          </div>
-                        ) : !punchItems || punchItems.length === 0 ? (
-                          <div className="text-center py-8 text-muted-foreground font-mono-tech text-[10px]">
-                            Sin pendientes registrados. Use el botón Agregar para crear un ítem.
-                          </div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {/* Categoría legend */}
-                            <div className="flex gap-3 mb-3">
-                              {(['A', 'B', 'C'] as PunchCategoria[]).map((cat) => (
-                                <span key={cat} className="flex items-center gap-1 text-[8px] font-mono-tech text-muted-foreground">
-                                  <Badge className={cn('rounded-none text-[7px] font-display border px-1.5', PUNCH_CATEGORIA_COLORS[cat])}>
-                                    {cat}
-                                  </Badge>
-                                  {cat === 'A' ? 'Crítico' : cat === 'B' ? 'Mayor' : 'Menor'}
-                                </span>
-                              ))}
-                            </div>
-
-                            {punchItems.map((item) => (
-                              <div
-                                key={item.id}
-                                className={cn(
-                                  'border p-3 flex items-start justify-between gap-3',
-                                  item.estado === 'CERRADO'
-                                    ? 'border-emerald-500/15 bg-emerald-500/5 opacity-60'
-                                    : 'border-primary/10 bg-slate-950/40'
-                                )}
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                                    <Badge className={cn('rounded-none text-[7px] font-display border px-1.5', PUNCH_CATEGORIA_COLORS[item.categoria])}>
-                                      {item.categoria}
-                                    </Badge>
-                                    <span className="text-[9px] font-mono-tech text-primary/60">{item.numero_item}</span>
-                                    <Badge variant="outline" className="rounded-none text-[7px] font-display border-primary/20 text-primary/40 px-1.5">
-                                      {item.disciplina}
-                                    </Badge>
-                                    {item.estado === 'CERRADO'
-                                      ? <Badge className="rounded-none text-[7px] font-display border bg-emerald-500/10 text-emerald-400 border-emerald-500/30 px-1.5">Cerrado</Badge>
-                                      : <Badge className="rounded-none text-[7px] font-display border bg-red-500/10 text-red-400 border-red-500/30 px-1.5">Abierto</Badge>
-                                    }
-                                  </div>
-                                  <p className="text-[10px] font-mono-tech text-foreground/80">{item.descripcion}</p>
-                                  <div className="flex items-center gap-3 mt-1 text-[9px] text-muted-foreground font-mono-tech">
-                                    <span>{item.responsable}</span>
-                                    {item.fecha_limite && <><span>·</span><span className="text-yellow-400/70">Vence: {item.fecha_limite}</span></>}
-                                  </div>
-                                </div>
-                                {item.estado === 'ABIERTO' && isOwner && item.id && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 flex-shrink-0"
-                                    onClick={() => handleClosePendiente(item.id!)}
-                                  >
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                  </Button>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  )}
                 </>
               )}
             </TabsContent>
@@ -1783,14 +2369,33 @@ export default function QualityNCSPage() {
         open={isAddingPendiente}
         onOpenChange={(open) => { if (!open) { setIsAddingPendiente(false); resetPendienteForm(); } }}
       >
-        <DialogContent className="rounded-none bg-slate-950 border-primary/20 max-w-lg">
+        <DialogContent className="rounded-none bg-slate-950 border-primary/20 max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display font-black uppercase tracking-widest text-[12px] text-primary flex items-center gap-2">
               <CheckSquare className="w-4 h-4" /> Nuevo Pendiente — {selectedEquipo?.tag}
+              {pendEtapaNumero && (
+                <Badge className="rounded-none text-[8px] font-display border bg-primary/10 text-primary/70 border-primary/20 px-1.5">
+                  Etapa {pendEtapaNumero}
+                </Badge>
+              )}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
+
+            {/* Título */}
+            <div className="space-y-1">
+              <Label className="font-display font-black uppercase tracking-widest text-[9px] text-primary/60">Título del Pendiente *</Label>
+              <Input
+                value={pendTitulo}
+                onChange={(e) => setPendTitulo(e.target.value)}
+                className="rounded-none bg-slate-900 border-primary/20 font-mono-tech text-[11px] h-9"
+                placeholder="Ej: Verticalidad columna C-07 fuera de tolerancia"
+                maxLength={120}
+              />
+            </div>
+
+            {/* Categoría + Disciplina + Etapa */}
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
                 <Label className="font-display font-black uppercase tracking-widest text-[9px] text-primary/60">Categoría *</Label>
                 <Select value={pendCategoria} onValueChange={(v) => setPendCategoria(v as PunchCategoria)}>
@@ -1817,18 +2422,41 @@ export default function QualityNCSPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1">
+                <Label className="font-display font-black uppercase tracking-widest text-[9px] text-primary/60">Etapa Montaje</Label>
+                <Select
+                  value={pendEtapaNumero ? String(pendEtapaNumero) : '__none__'}
+                  onValueChange={(v) => setPendEtapaNumero(v === '__none__' ? null : Number(v))}
+                >
+                  <SelectTrigger className="rounded-none bg-slate-900 border-primary/20 font-mono-tech text-[11px] h-9">
+                    <SelectValue placeholder="Sin etapa" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-none bg-slate-950 border-primary/20 max-h-60">
+                    <SelectItem value="__none__" className="font-mono-tech text-[11px]">— Sin etapa</SelectItem>
+                    {(planMontaje ?? []).map((et) => (
+                      <SelectItem key={et.numero_etapa} value={String(et.numero_etapa)} className="font-mono-tech text-[10px]">
+                        {String(et.numero_etapa).padStart(2, '0')} — {et.titulo}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
+            {/* Descripción detallada */}
             <div className="space-y-1">
-              <Label className="font-display font-black uppercase tracking-widest text-[9px] text-primary/60">Descripción *</Label>
+              <Label className="font-display font-black uppercase tracking-widest text-[9px] text-primary/60">Descripción Técnica Detallada</Label>
               <textarea
                 value={pendDescripcion}
                 onChange={(e) => setPendDescripcion(e.target.value)}
                 rows={3}
                 className="w-full rounded-none bg-slate-900 border border-primary/20 font-mono-tech text-[11px] p-2 text-foreground resize-none focus:outline-none focus:border-primary/50"
-                placeholder="Describa el pendiente o hallazgo..."
+                placeholder="Descripción técnica del hallazgo, tolerancias incumplidas, condición observada..."
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+
+            {/* Responsable + Fecha Límite + NCR Ref */}
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
                 <Label className="font-display font-black uppercase tracking-widest text-[9px] text-primary/60">Responsable *</Label>
                 <Input
@@ -1847,7 +2475,79 @@ export default function QualityNCSPage() {
                   className="rounded-none bg-slate-900 border-primary/20 font-mono-tech text-[11px] h-9"
                 />
               </div>
+              <div className="space-y-1">
+                <Label className="font-display font-black uppercase tracking-widest text-[9px] text-primary/60">Ref. NCR (opcional)</Label>
+                <Input
+                  value={pendNcrReferencia}
+                  onChange={(e) => setPendNcrReferencia(e.target.value)}
+                  className="rounded-none bg-slate-900 border-primary/20 font-mono-tech text-[11px] h-9"
+                  placeholder="NCR-001"
+                />
+              </div>
             </div>
+
+            {/* Evidencias: Fotos y PDFs */}
+            <div className="space-y-2 border border-primary/10 bg-slate-900/40 p-3">
+              <div className="flex items-center justify-between">
+                <Label className="font-display font-black uppercase tracking-widest text-[9px] text-primary/60">
+                  Evidencias — Fotos y Documentos PDF ({pendEvidencias.length}/10)
+                  {!storage && <span className="text-yellow-400 ml-2">— Storage no configurado</span>}
+                </Label>
+              </div>
+              <input
+                ref={pendFileInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                multiple
+                className="hidden"
+                onChange={handlePunchFileUpload}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-none font-display font-black uppercase tracking-widest text-[9px] border-primary/20 w-full h-9"
+                onClick={() => pendFileInputRef.current?.click()}
+                disabled={pendUploadingFiles || pendEvidencias.length >= 10 || !storage}
+              >
+                {pendUploadingFiles
+                  ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Subiendo a Cloud Storage...</>
+                  : <><Upload className="w-3 h-3 mr-1" /> Adjuntar Fotos o PDF</>
+                }
+              </Button>
+              {pendEvidencias.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {pendEvidencias.map((ev, i) => (
+                    <div
+                      key={ev.id}
+                      className="relative border border-primary/20 bg-slate-900"
+                      title={ev.nombre}
+                    >
+                      {ev.tipo === 'foto' ? (
+                        <div className="w-16 h-16 relative">
+                          <Image src={ev.url} alt={ev.nombre} fill className="object-cover" />
+                        </div>
+                      ) : (
+                        <div className="w-16 h-16 flex flex-col items-center justify-center gap-1 bg-red-500/10">
+                          <FileText className="w-5 h-5 text-red-400" />
+                          <span className="text-[7px] font-mono-tech text-red-400/70 text-center px-1 leading-tight truncate w-full px-1">PDF</span>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => setPendEvidencias((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="absolute -top-1.5 -right-1.5 bg-red-600 rounded-full w-4 h-4 flex items-center justify-center z-10"
+                      >
+                        <X className="w-2.5 h-2.5 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[8px] text-muted-foreground font-mono-tech">
+                Formatos aceptados: JPG, PNG, WEBP, PDF. Máx. 10 MB por archivo. Las evidencias quedan almacenadas en Firebase Storage.
+              </p>
+            </div>
+
           </div>
           <DialogFooter className="gap-2">
             <Button
@@ -1861,12 +2561,195 @@ export default function QualityNCSPage() {
             <Button
               className="rounded-none font-display font-black uppercase tracking-widest text-[9px] bg-primary text-primary-foreground"
               onClick={handleSavePendiente}
-              disabled={pendienteSaving}
+              disabled={pendienteSaving || pendUploadingFiles}
             >
               {pendienteSaving
                 ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Guardando...</>
-                : <><Save className="w-3 h-3 mr-1" /> Guardar Pendiente</>
+                : <><Save className="w-3 h-3 mr-1" /> Registrar Pendiente</>
               }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Ver Pendiente ─────────────────────────────────────────────── */}
+      <Dialog open={!!viewPunchItem} onOpenChange={(open) => { if (!open) setViewPunchItem(null); }}>
+        <DialogContent className="rounded-none bg-slate-950 border-primary/20 max-w-2xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display font-black uppercase tracking-widest text-[12px] text-primary flex items-center gap-2">
+              <CheckSquare className="w-4 h-4" />
+              {viewPunchItem?.numero_item} — {selectedEquipo?.tag}
+            </DialogTitle>
+          </DialogHeader>
+          {viewPunchItem && (
+            <div className="space-y-4 py-2">
+              {/* Badges de estado */}
+              <div className="flex flex-wrap gap-2">
+                <Badge className={cn('rounded-none text-[8px] font-display border px-2', PUNCH_CATEGORIA_COLORS[viewPunchItem.categoria])}>
+                  Prioridad {viewPunchItem.categoria}
+                </Badge>
+                <Badge className={cn('rounded-none text-[8px] font-display border px-2', PUNCH_ESTADO_COLORS[viewPunchItem.estado])}>
+                  {PUNCH_ESTADO_LABELS[viewPunchItem.estado]}
+                </Badge>
+                <Badge variant="outline" className="rounded-none text-[8px] font-display border-primary/20 text-primary/60 px-2">
+                  {viewPunchItem.disciplina}
+                </Badge>
+                {viewPunchItem.etapa_numero && (
+                  <Badge variant="outline" className="rounded-none text-[8px] font-display border-primary/20 text-primary/60 px-2">
+                    Etapa {viewPunchItem.etapa_numero}
+                  </Badge>
+                )}
+                {viewPunchItem.ncr_referencia && (
+                  <Badge className="rounded-none text-[8px] font-display border bg-red-500/10 text-red-400 border-red-500/30 px-2">
+                    NCR: {viewPunchItem.ncr_referencia}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Título */}
+              <div>
+                <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40 mb-1">Título</p>
+                <p className="text-[13px] font-mono-tech font-bold text-foreground/90">{viewPunchItem.titulo}</p>
+              </div>
+
+              {/* Etapa */}
+              {viewPunchItem.etapa_titulo && (
+                <div>
+                  <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40 mb-1">Etapa de Montaje</p>
+                  <p className="text-[10px] font-mono-tech text-primary/70">{String(viewPunchItem.etapa_numero).padStart(2, '0')} — {viewPunchItem.etapa_titulo}</p>
+                </div>
+              )}
+
+              {/* Descripción */}
+              {viewPunchItem.descripcion && (
+                <div>
+                  <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40 mb-1">Descripción Técnica</p>
+                  <p className="text-[11px] font-mono-tech text-foreground/80 whitespace-pre-wrap leading-relaxed">{viewPunchItem.descripcion}</p>
+                </div>
+              )}
+
+              {/* Metadatos */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40">Responsable</p>
+                  <p className="text-[11px] font-mono-tech">{viewPunchItem.responsable}</p>
+                </div>
+                {viewPunchItem.fecha_limite && (
+                  <div>
+                    <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40">Fecha Límite</p>
+                    <p className="text-[11px] font-mono-tech text-yellow-400">{viewPunchItem.fecha_limite}</p>
+                  </div>
+                )}
+                {viewPunchItem.fecha_cierre && (
+                  <div>
+                    <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40">Fecha Cierre</p>
+                    <p className="text-[11px] font-mono-tech text-emerald-400">{viewPunchItem.fecha_cierre}</p>
+                  </div>
+                )}
+                {viewPunchItem.cerrado_por && (
+                  <div>
+                    <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40">Cerrado Por</p>
+                    <p className="text-[11px] font-mono-tech">{viewPunchItem.cerrado_por}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40">Registrado Por</p>
+                  <p className="text-[11px] font-mono-tech">{viewPunchItem.authorName}</p>
+                </div>
+                <div>
+                  <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40">Fecha Registro</p>
+                  <p className="text-[11px] font-mono-tech text-muted-foreground">
+                    {new Date(viewPunchItem.createdAt).toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Evidencias: Fotos y PDFs */}
+              {viewPunchItem.evidencias && viewPunchItem.evidencias.length > 0 && (
+                <div>
+                  <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40 mb-2">
+                    Evidencias ({viewPunchItem.evidencias.length})
+                  </p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {viewPunchItem.evidencias.map((ev) => (
+                      ev.tipo === 'foto' ? (
+                        <a
+                          key={ev.id}
+                          href={ev.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="relative w-full h-24 block border border-primary/20 hover:border-primary/60 transition-colors group"
+                          title={ev.nombre}
+                        >
+                          <Image src={ev.url} alt={ev.nombre} fill className="object-cover" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                            <Eye className="w-4 h-4 text-white" />
+                          </div>
+                        </a>
+                      ) : (
+                        <a
+                          key={ev.id}
+                          href={ev.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex flex-col items-center justify-center gap-1 h-24 border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 hover:border-red-500/40 transition-colors p-2"
+                          title={ev.nombre}
+                        >
+                          <FileText className="w-6 h-6 text-red-400" />
+                          <span className="text-[8px] font-mono-tech text-red-400/70 text-center leading-tight break-all line-clamp-2">
+                            {ev.nombre}
+                          </span>
+                        </a>
+                      )
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Acciones de estado (solo owner) */}
+              {isOwner && viewPunchItem.estado !== 'CERRADO' && (
+                <div className="border border-primary/10 bg-slate-900/50 p-3 space-y-2">
+                  <p className="text-[8px] font-display font-black uppercase tracking-widest text-primary/40">Actualizar Estado</p>
+                  <div className="flex gap-2">
+                    {viewPunchItem.estado === 'ABIERTO' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-none font-display font-black uppercase tracking-widest text-[9px] border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 h-8"
+                        onClick={() => handleUpdatePendienteEstado(viewPunchItem.id, 'EN_GESTION')}
+                      >
+                        <Clock className="w-3 h-3 mr-1" /> Marcar En Gestión
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      className="rounded-none font-display font-black uppercase tracking-widest text-[9px] bg-emerald-600 text-white hover:bg-emerald-500 h-8"
+                      onClick={() => { handleUpdatePendienteEstado(viewPunchItem.id, 'CERRADO'); setViewPunchItem(null); }}
+                    >
+                      <CheckCircle2 className="w-3 h-3 mr-1" /> Cerrar Pendiente
+                    </Button>
+                    {viewPunchItem.estado === 'EN_GESTION' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="rounded-none font-display font-black uppercase tracking-widest text-[9px] text-muted-foreground h-8"
+                        onClick={() => handleUpdatePendienteEstado(viewPunchItem.id, 'ABIERTO')}
+                      >
+                        Reabrir
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-none font-display font-black uppercase tracking-widest text-[9px] border-primary/20"
+              onClick={() => setViewPunchItem(null)}
+            >
+              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>

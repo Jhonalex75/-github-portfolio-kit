@@ -4,6 +4,7 @@ import { LoadingScreen } from '@/components/LoadingScreen';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { Toaster } from '@/components/ui/toaster';
+import { OnlineUsersWidget } from '@/components/OnlineUsersWidget';
 
 export const metadata: Metadata = {
   title: 'CyberEngineer Nexus | Next-Gen Engineering Hub',
@@ -22,6 +23,7 @@ export default function RootLayout({
           <FirebaseClientProvider>
             <LoadingScreen />
             {children}
+            <OnlineUsersWidget />
             <Toaster />
           </FirebaseClientProvider>
         </ErrorBoundary>

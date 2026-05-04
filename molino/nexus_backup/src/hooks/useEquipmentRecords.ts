@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import {
   collection, doc, setDoc, getDocs, updateDoc,
-  addDoc, query, orderBy,
+  addDoc, deleteDoc, query, orderBy,
 } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getApp } from "firebase/app";

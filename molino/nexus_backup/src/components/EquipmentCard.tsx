@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Wrench, ClipboardList, Settings2, Plus, ChevronRight,
+  Wrench, ClipboardList, Settings2, Plus, ChevronRight, ChevronDown,
   Calendar, User, CheckCircle2, AlertTriangle, X,
   Camera, Download, ShieldAlert, Image as ImageIcon, Loader2,
   Trash2, Eye, EyeOff, Edit2, Save, BookOpen, FileText,
@@ -132,9 +132,16 @@ export function EquipmentCard({
   const [updatingAct,   setUpdatingAct]   = useState(false);
 
   // Step state
-  const [editingStepId, setEditingStepId] = useState<string | null>(null);
-  const [stepEditForm,  setStepEditForm]  = useState<Partial<AssemblyStep>>({});
-  const [savingStep,    setSavingStep]    = useState(false);
+  const [editingStepId,  setEditingStepId]  = useState<string | null>(null);
+  const [stepEditForm,   setStepEditForm]   = useState<Partial<AssemblyStep>>({});
+  const [savingStep,     setSavingStep]     = useState(false);
+  const [expandedSteps,  setExpandedSteps]  = useState<Set<string>>(new Set());
+
+  const toggleStep = (id: string) => setExpandedSteps(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   // Punch list state
   const [showPunchForm, setShowPunchForm]  = useState(false);
@@ -158,8 +165,7 @@ export function EquipmentCard({
 
   // Assembly progress
   const staticPlan  = MILL_ASSEMBLY_PLANS[equipment.tag] ?? [];
-  const progress    = calcAssemblyProgress(assemblySteps.length > 0 ? assemblySteps : []);
-  const stepsToShow: AssemblyStep[] = assemblySteps.length > 0 ? assemblySteps : staticPlan.map((s, i) => ({
+  const rawSteps: AssemblyStep[] = assemblySteps.length > 0 ? assemblySteps : staticPlan.map((s, i) => ({
     id: `static-${i}`, equipment_tag: equipment.tag,
     step_number: s.step_number, title: s.title, description: s.description,
     weight_pct: s.weight_pct, status: "pendiente" as AssemblyStepStatus,
@@ -168,6 +174,11 @@ export function EquipmentCard({
     photo_urls: undefined, photo_paths: undefined, observations: undefined,
     updated_by: undefined, updated_at: undefined,
   }));
+  // Dedup by step_number (Firestore puede retornar duplicados)
+  const stepsToShow: AssemblyStep[] = [
+    ...new Map(rawSteps.map(s => [s.step_number, s])).values()
+  ].sort((a, b) => a.step_number - b.step_number);
+  const progress    = calcAssemblyProgress(stepsToShow);
 
   const completedSteps  = assemblySteps.filter(s => s.status === "completado").length;
   const inProgressSteps = assemblySteps.filter(s => s.status === "en_proceso").length;
@@ -442,166 +453,272 @@ export function EquipmentCard({
 
               {/* ══ TAB 2: AVANCE DE MONTAJE ══════════════════════════ */}
               {activeTab === "avance" && (
-                <div className="space-y-5">
-                  {/* Progress dashboard */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-white/[0.02] border border-orange-500/20 p-3 text-center">
-                      <p className="text-3xl font-display font-bold text-orange-400">{Math.round(progress)}%</p>
-                      <p className="text-[9px] font-display uppercase tracking-widest text-white/30 mt-1">Avance Global</p>
+                <div className="space-y-4">
+
+                  {/* ── Dashboard de progreso ─────────────────────────── */}
+                  <div className="border border-orange-500/15 bg-white/[0.01] p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[32px] font-display font-black text-orange-400 leading-none">{Math.round(progress)}%</span>
+                        <span className="text-[9px] font-display uppercase tracking-widest text-white/30">Avance Global</span>
+                      </div>
+                      <div className="flex items-center gap-5">
+                        {[
+                          { label: "Completadas",    count: completedSteps,                                     color: "text-emerald-400", dot: "bg-emerald-500" },
+                          { label: "En Proceso",     count: inProgressSteps,                                    color: "text-yellow-400",  dot: "bg-yellow-500"  },
+                          { label: "Pendientes",     count: stepsToShow.length - completedSteps - inProgressSteps, color: "text-slate-400",   dot: "bg-slate-600"   },
+                          { label: "Punch Abiertos", count: punchOpen + punchGestion,                           color: "text-red-400",     dot: "bg-red-500"     },
+                        ].map(({ label, count, color, dot }) => (
+                          <div key={label} className="text-center min-w-[40px]">
+                            <div className={`text-[20px] font-display font-black leading-none ${color}`}>{count}</div>
+                            <div className="flex items-center justify-center gap-1 mt-0.5">
+                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />
+                              <span className="text-[6.5px] font-display uppercase tracking-widest text-white/30">{label}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="bg-white/[0.02] border border-emerald-500/20 p-3 text-center">
-                      <p className="text-3xl font-display font-bold text-emerald-400">{completedSteps}</p>
-                      <p className="text-[9px] font-display uppercase tracking-widest text-white/30 mt-1">Etapas Completadas</p>
+
+                    {/* Barra segmentada por etapa */}
+                    <div className="flex h-4 w-full gap-px">
+                      {stepsToShow.map((step) => {
+                        const segColor = step.status === "completado" ? "bg-emerald-500" : step.status === "en_proceso" ? "bg-yellow-500" : "bg-slate-700/50";
+                        return (
+                          <div key={step.id} className={`h-full relative group cursor-default overflow-hidden transition-all duration-500 ${segColor}`}
+                            style={{ width: `${step.weight_pct}%` }}
+                            title={`Etapa ${step.step_number}: ${step.title} — ${step.weight_pct}% — ${ASSEMBLY_STEP_STATUS_LABELS[step.status]}`}>
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20">
+                              <span className="text-[6px] font-display font-black text-white leading-none drop-shadow">{step.weight_pct}%</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="bg-white/[0.02] border border-yellow-500/20 p-3 text-center">
-                      <p className="text-3xl font-display font-bold text-yellow-400">{inProgressSteps}</p>
-                      <p className="text-[9px] font-display uppercase tracking-widest text-white/30 mt-1">En Proceso</p>
-                    </div>
-                    <div className="bg-white/[0.02] border border-slate-500/20 p-3 text-center">
-                      <p className="text-3xl font-display font-bold text-slate-400">{stepsToShow.length - completedSteps - inProgressSteps}</p>
-                      <p className="text-[9px] font-display uppercase tracking-widest text-white/30 mt-1">Pendientes</p>
+                    <div className="flex items-center gap-4 mt-1.5">
+                      {[["bg-emerald-500","Completado"],["bg-yellow-500","En Proceso (50%)"],["bg-slate-700/50","Pendiente"]].map(([c,l]) => (
+                        <span key={l} className="flex items-center gap-1 text-[7px] font-mono-tech text-white/30">
+                          <span className={`w-2 h-2 inline-block flex-shrink-0 ${c}`} />{l}
+                        </span>
+                      ))}
+                      <span className="ml-auto text-[7px] font-mono-tech text-white/20">Hover = peso %</span>
                     </div>
                   </div>
 
-                  {/* Progress bar */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[9px] font-display uppercase tracking-widest text-white/40">Progreso Ponderado</span>
-                      <span className="text-[10px] font-display font-bold text-orange-400">{Math.round(progress)}%</span>
-                    </div>
-                    <ProgressBar pct={progress} />
-                    <div className="flex gap-4 mt-1">
-                      <div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-emerald-400 inline-block" /><span className="text-[9px] font-mono-tech text-white/30">Completado</span></div>
-                      <div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-yellow-400 inline-block" /><span className="text-[9px] font-mono-tech text-white/30">En Proceso (50%)</span></div>
-                      <div className="flex items-center gap-1.5"><span className="w-2 h-2 bg-slate-600 inline-block" /><span className="text-[9px] font-mono-tech text-white/30">Pendiente</span></div>
-                    </div>
-                  </div>
-
-                  {/* Step list */}
+                  {/* ── Accordion de etapas ──────────────────────────── */}
                   {stepsLoading ? (
                     <div className="text-center py-10 animate-pulse">
                       <p className="text-[10px] font-mono-tech text-white/30 uppercase tracking-widest">Cargando etapas...</p>
                     </div>
                   ) : (
-                    <ScrollArea className="h-[480px] border border-white/5 rounded-none">
-                    <div className="space-y-2 p-1">
+                    <div className="space-y-1">
                       {stepsToShow.map((step) => {
-                        const sc = ASSEMBLY_STEP_STATUS_COLORS[step.status];
+                        const sc        = ASSEMBLY_STEP_STATUS_COLORS[step.status];
                         const isEditing = editingStepId === step.id;
+                        const isOpen    = expandedSteps.has(step.id);
+                        const stepPunch = punchList.filter(p => p.step_number === step.step_number);
+                        const punchOpenStep = stepPunch.filter(p => p.status !== "cerrado").length;
+
                         return (
-                          <div key={step.id} className={`border ${sc.border} bg-white/[0.01] overflow-hidden`}>
-                            {/* Step header */}
-                            <div className="flex items-start gap-3 p-3">
-                              <div className="flex-shrink-0 w-7 h-7 bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
-                                <span className="text-[10px] font-display font-bold text-orange-400">{step.step_number}</span>
+                          <div key={step.id} className={`border ${sc.border} overflow-hidden`}>
+
+                            {/* ── Fila cabecera: clic expande ─────────── */}
+                            <div
+                              className={`flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none transition-colors ${
+                                step.status === "completado" ? "bg-emerald-500/5 hover:bg-emerald-500/10" :
+                                step.status === "en_proceso"  ? "bg-yellow-500/5 hover:bg-yellow-500/10"  :
+                                "bg-white/[0.01] hover:bg-white/[0.03]"
+                              }`}
+                              onClick={() => toggleStep(step.id)}
+                            >
+                              {/* Barra lateral de estado */}
+                              <div className={`w-0.5 self-stretch flex-shrink-0 rounded-full ${
+                                step.status === "completado" ? "bg-emerald-500" :
+                                step.status === "en_proceso"  ? "bg-yellow-500"  : "bg-slate-600"
+                              }`} />
+                              {/* Número */}
+                              <div className="flex-shrink-0 w-6 h-6 bg-orange-500/10 border border-orange-500/15 flex items-center justify-center">
+                                <span className="text-[9px] font-display font-bold text-orange-400/70">{step.step_number}</span>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="text-[11px] font-display font-bold text-white/80">{step.title}</p>
-                                  <Badge className={`text-[7px] font-display uppercase rounded-none ${sc.bg} ${sc.text} ${sc.border}`}>
-                                    <span className={`w-1 h-1 rounded-full ${sc.dot} mr-1 inline-block`} />
-                                    {ASSEMBLY_STEP_STATUS_LABELS[step.status]}
-                                  </Badge>
-                                  <span className="text-[9px] font-mono-tech text-orange-400/60">{step.weight_pct}% peso</span>
-                                </div>
-                                <p className="text-[10px] font-mono-tech text-white/40 mt-1 line-clamp-2">{step.description}</p>
-                                {(step.iom_ref || step.proc_ref) && (
-                                  <div className="flex gap-3 mt-1 flex-wrap">
-                                    {step.iom_ref && <span className="text-[8px] font-mono-tech text-blue-400/60">📄 {step.iom_ref}</span>}
-                                    {step.proc_ref && <span className="text-[8px] font-mono-tech text-purple-400/60">📋 {step.proc_ref}</span>}
-                                  </div>
+                              {/* Título */}
+                              <span className="text-[10px] font-display font-bold text-white/80 flex-1 min-w-0 truncate">{step.title}</span>
+                              {/* Badges + acciones */}
+                              <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                <span className="text-[8px] font-mono-tech text-orange-400/50">{step.weight_pct}%</span>
+                                <Badge className={`text-[7px] font-display uppercase rounded-none ${sc.bg} ${sc.text} ${sc.border} px-1.5`}>
+                                  <span className={`w-1 h-1 rounded-full ${sc.dot} mr-1 inline-block`} />
+                                  {ASSEMBLY_STEP_STATUS_LABELS[step.status]}
+                                </Badge>
+                                {/* Punch badge */}
+                                {stepPunch.length > 0 && (
+                                  <span className={`flex items-center gap-0.5 px-1.5 text-[7px] font-display uppercase tracking-widest border ${
+                                    punchOpenStep > 0
+                                      ? "bg-red-500/10 text-red-400 border-red-500/25"
+                                      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
+                                  }`}>
+                                    <ListTodo className="w-2.5 h-2.5" />
+                                    {punchOpenStep > 0 ? `${punchOpenStep} abierto${punchOpenStep > 1 ? "s" : ""}` : `${stepPunch.length} ✓`}
+                                  </span>
                                 )}
-                                {step.responsible && (
-                                  <p className="text-[9px] font-mono-tech text-white/30 mt-1">
-                                    <User className="w-2.5 h-2.5 inline mr-1" />{step.responsible}
-                                    {step.completion_date && <><Calendar className="w-2.5 h-2.5 inline ml-2 mr-1" />{step.completion_date}</>}
-                                  </p>
-                                )}
-                                {step.observations && (
-                                  <p className="text-[9px] font-mono-tech text-white/40 mt-1 italic">{step.observations}</p>
-                                )}
-                                {/* Step photos */}
-                                {step.photo_urls && step.photo_urls.length > 0 && (
-                                  <div className="flex gap-1 mt-2 flex-wrap">
-                                    {step.photo_urls.map((url, i) => (
-                                      <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                                        className="w-10 h-10 border border-white/10 overflow-hidden hover:border-orange-500/50 transition-colors">
-                                        <img src={url} alt={`foto ${i+1}`} className="w-full h-full object-cover" />
-                                      </a>
-                                    ))}
-                                  </div>
+                                {/* Foto + Editar */}
+                                {!step.id.startsWith("static-") && (
+                                  <>
+                                    <button onClick={() => handleStepPhotoClick(step.id)}
+                                      className="w-6 h-6 flex items-center justify-center border border-white/10 hover:border-blue-500/50 text-white/25 hover:text-blue-400 transition-colors">
+                                      <Camera className="w-3 h-3" />
+                                    </button>
+                                    <button onClick={() => { handleStepEdit(step as AssemblyStep); if (!isOpen) toggleStep(step.id); }}
+                                      className="w-6 h-6 flex items-center justify-center border border-white/10 hover:border-orange-500/50 text-white/25 hover:text-orange-400 transition-colors">
+                                      <Edit2 className="w-3 h-3" />
+                                    </button>
+                                  </>
                                 )}
                               </div>
-                              {/* Step actions */}
-                              {!step.id.startsWith("static-") && (
-                                <div className="flex gap-1.5 flex-shrink-0">
-                                  <button onClick={() => handleStepPhotoClick(step.id)}
-                                    className="w-6 h-6 flex items-center justify-center border border-white/10 hover:border-blue-500/50 text-white/30 hover:text-blue-400 transition-colors">
-                                    <Camera className="w-3 h-3" />
-                                  </button>
-                                  <button onClick={() => handleStepEdit(step as AssemblyStep)}
-                                    className="w-6 h-6 flex items-center justify-center border border-white/10 hover:border-orange-500/50 text-white/30 hover:text-orange-400 transition-colors">
-                                    <Edit2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              )}
-                              {step.id.startsWith("static-") && (
-                                <div className="flex-shrink-0">
-                                  <span className="text-[8px] font-mono-tech text-white/20">Sin iniciar en BD</span>
-                                </div>
-                              )}
+                              {/* Chevron */}
+                              <ChevronDown className={`w-3.5 h-3.5 text-white/25 transition-transform duration-200 flex-shrink-0 ml-1 ${isOpen ? "rotate-180" : ""}`} />
                             </div>
 
-                            {/* Edit form */}
-                            {isEditing && (
-                              <div className="border-t border-orange-500/20 bg-orange-500/[0.02] p-3 space-y-2">
-                                <p className="text-[9px] font-display uppercase tracking-widest text-orange-400/60">Actualizar etapa {step.step_number}</p>
-                                <div className="grid grid-cols-3 gap-2">
-                                  <div>
-                                    <label className="text-[8px] uppercase tracking-widest text-white/30">Estado</label>
-                                    <Select value={stepEditForm.status || "pendiente"} onValueChange={v => setStepEditForm(p => ({ ...p, status: v as AssemblyStepStatus }))}>
-                                      <SelectTrigger className="h-7 text-[10px] bg-white/5 rounded-none mt-0.5"><SelectValue /></SelectTrigger>
-                                      <SelectContent className="bg-[#020617] border-white/10 rounded-none">
-                                        {(Object.entries(ASSEMBLY_STEP_STATUS_LABELS)).map(([k, v]) => (
-                                          <SelectItem key={k} value={k} className="text-xs">{v}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
+                            {/* Barra de estado base del step */}
+                            <div className={`h-px w-full ${step.status === "completado" ? "bg-emerald-500/40" : step.status === "en_proceso" ? "bg-yellow-500/40" : "bg-white/5"}`} />
+
+                            {/* ── Panel expandido ─────────────────────── */}
+                            {isOpen && (
+                              <div>
+                                {/* Descripción + meta */}
+                                <div className="px-4 py-3 bg-white/[0.01]">
+                                  <p className="text-[9px] font-mono-tech text-white/40 leading-relaxed">{step.description}</p>
+                                  {(step.iom_ref || step.proc_ref) && (
+                                    <div className="flex gap-3 mt-1.5 flex-wrap">
+                                      {step.iom_ref  && <span className="text-[8px] font-mono-tech text-blue-400/50">📄 {step.iom_ref}</span>}
+                                      {step.proc_ref && <span className="text-[8px] font-mono-tech text-purple-400/50">📋 {step.proc_ref}</span>}
+                                    </div>
+                                  )}
+                                  <div className="flex flex-wrap gap-4 mt-1.5 text-[8px] font-mono-tech text-white/30">
+                                    {step.responsible && <span><User className="w-2.5 h-2.5 inline mr-1" />{step.responsible}</span>}
+                                    {step.completion_date && <span><Calendar className="w-2.5 h-2.5 inline mr-1" />{step.completion_date}</span>}
+                                    {step.observations && <span className="italic text-white/25">— {step.observations}</span>}
                                   </div>
-                                  <div>
-                                    <label className="text-[8px] uppercase tracking-widest text-white/30">Responsable</label>
-                                    <Input value={stepEditForm.responsible || ""} onChange={e => setStepEditForm(p => ({ ...p, responsible: e.target.value }))}
-                                      className="h-7 text-[10px] bg-white/5 rounded-none mt-0.5" placeholder="Nombre" />
-                                  </div>
-                                  <div>
-                                    <label className="text-[8px] uppercase tracking-widest text-white/30">Fecha completado</label>
-                                    <Input type="date" value={stepEditForm.completion_date || ""} onChange={e => setStepEditForm(p => ({ ...p, completion_date: e.target.value }))}
-                                      className="h-7 text-[10px] bg-white/5 rounded-none mt-0.5" />
-                                  </div>
+                                  {/* Fotos */}
+                                  {step.photo_urls && step.photo_urls.length > 0 && (
+                                    <div className="flex gap-1 mt-2 flex-wrap">
+                                      {step.photo_urls.map((url, i) => (
+                                        <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                                          className="w-10 h-10 border border-white/10 overflow-hidden hover:border-orange-500/50 transition-colors">
+                                          <img src={url} alt={`foto ${i+1}`} className="w-full h-full object-cover" />
+                                        </a>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
-                                <div>
-                                  <label className="text-[8px] uppercase tracking-widest text-white/30">Observaciones</label>
-                                  <Textarea value={stepEditForm.observations || ""} onChange={e => setStepEditForm(p => ({ ...p, observations: e.target.value }))}
-                                    className="text-[10px] bg-white/5 rounded-none mt-0.5 min-h-[50px] resize-none" placeholder="Notas técnicas..." />
-                                </div>
-                                <div className="flex justify-end gap-2">
-                                  <Button size="sm" type="button" variant="ghost" onClick={() => setEditingStepId(null)}
-                                    className="h-6 text-[8px] uppercase tracking-widest rounded-none">Cancelar</Button>
-                                  <Button size="sm" onClick={handleStepSave} disabled={savingStep}
-                                    className="h-6 bg-orange-600 hover:bg-orange-500 text-[8px] uppercase tracking-widest rounded-none">
-                                    {savingStep ? "..." : "Guardar"}
-                                  </Button>
+
+                                {/* Edit form */}
+                                {isEditing && (
+                                  <div className="border-t border-orange-500/15 bg-orange-500/[0.02] px-4 py-3 space-y-2">
+                                    <p className="text-[9px] font-display uppercase tracking-widest text-orange-400/60">Actualizar Etapa {step.step_number}</p>
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div>
+                                        <label className="text-[8px] uppercase tracking-widest text-white/30">Estado</label>
+                                        <Select value={stepEditForm.status || "pendiente"} onValueChange={v => setStepEditForm(p => ({ ...p, status: v as AssemblyStepStatus }))}>
+                                          <SelectTrigger className="h-7 text-[10px] bg-white/5 rounded-none mt-0.5"><SelectValue /></SelectTrigger>
+                                          <SelectContent className="bg-[#020617] border-white/10 rounded-none">
+                                            {Object.entries(ASSEMBLY_STEP_STATUS_LABELS).map(([k, v]) => (
+                                              <SelectItem key={k} value={k} className="text-xs">{v}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div>
+                                        <label className="text-[8px] uppercase tracking-widest text-white/30">Responsable</label>
+                                        <Input value={stepEditForm.responsible || ""} onChange={e => setStepEditForm(p => ({ ...p, responsible: e.target.value }))}
+                                          className="h-7 text-[10px] bg-white/5 rounded-none mt-0.5" placeholder="Nombre" />
+                                      </div>
+                                      <div>
+                                        <label className="text-[8px] uppercase tracking-widest text-white/30">Fecha completado</label>
+                                        <Input type="date" value={stepEditForm.completion_date || ""} onChange={e => setStepEditForm(p => ({ ...p, completion_date: e.target.value }))}
+                                          className="h-7 text-[10px] bg-white/5 rounded-none mt-0.5" />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <label className="text-[8px] uppercase tracking-widest text-white/30">Observaciones</label>
+                                      <Textarea value={stepEditForm.observations || ""} onChange={e => setStepEditForm(p => ({ ...p, observations: e.target.value }))}
+                                        className="text-[10px] bg-white/5 rounded-none mt-0.5 min-h-[50px] resize-none" placeholder="Notas técnicas..." />
+                                    </div>
+                                    <div className="flex justify-end gap-2">
+                                      <Button size="sm" variant="ghost" onClick={() => setEditingStepId(null)}
+                                        className="h-6 text-[8px] uppercase tracking-widest rounded-none">Cancelar</Button>
+                                      <Button size="sm" onClick={handleStepSave} disabled={savingStep}
+                                        className="h-6 bg-orange-600 hover:bg-orange-500 text-[8px] uppercase tracking-widest rounded-none">
+                                        {savingStep ? "..." : "Guardar"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* ── Punch list de esta etapa ─────────── */}
+                                <div className="border-t border-white/5 bg-black/20 px-4 py-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[8px] font-display font-black uppercase tracking-widest text-white/30 flex items-center gap-1.5">
+                                      <ListTodo className="w-2.5 h-2.5" />
+                                      Punch List
+                                      {stepPunch.length > 0 && (
+                                        <span className={`font-normal normal-case tracking-normal ml-1 ${punchOpenStep > 0 ? "text-red-400/60" : "text-emerald-400/60"}`}>
+                                          — {punchOpenStep > 0 ? `${punchOpenStep} abierto${punchOpenStep > 1 ? "s" : ""} · ${stepPunch.length} total` : `${stepPunch.length} cerrado${stepPunch.length > 1 ? "s" : ""} ✓`}
+                                        </span>
+                                      )}
+                                    </span>
+                                    <button
+                                      onClick={() => { setPunchForm(p => ({ ...p })); setShowPunchForm(true); setActiveTab("pendientes"); }}
+                                      className="flex items-center gap-1 px-2 py-1 text-[8px] font-display uppercase tracking-widest text-orange-400/60 hover:text-orange-300 hover:bg-orange-500/10 border border-orange-500/15 transition-colors"
+                                    >
+                                      <Plus className="w-2.5 h-2.5" /> Agregar
+                                    </button>
+                                  </div>
+                                  {stepPunch.length === 0 ? (
+                                    <p className="text-[9px] font-mono-tech text-white/20 text-center py-2 border border-dashed border-white/5">
+                                      Sin pendientes — Etapa limpia
+                                    </p>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      {stepPunch.map((item) => {
+                                        const psc = PUNCH_STATUS_COLORS[item.status];
+                                        const ppc = PUNCH_PRIORITY_COLORS[item.priority];
+                                        return (
+                                          <div key={item.id} className={`border ${psc.border} bg-white/[0.005] px-3 py-2 flex items-start gap-2`}>
+                                            <Badge className={`text-[7px] font-display font-black uppercase rounded-none ${ppc.bg} ${ppc.text} ${ppc.border} px-1.5 flex-shrink-0 mt-0.5`}>
+                                              {item.priority}
+                                            </Badge>
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                                                <Badge className={`text-[7px] font-display uppercase rounded-none ${psc.bg} ${psc.text} ${psc.border} px-1`}>
+                                                  {PUNCH_STATUS_LABELS[item.status]}
+                                                </Badge>
+                                                <span className="text-[8px] font-mono-tech text-white/30">{PUNCH_DISCIPLINE_LABELS[item.discipline]}</span>
+                                                {item.due_date && <span className="text-[8px] font-mono-tech text-yellow-400/50">Vence: {item.due_date}</span>}
+                                              </div>
+                                              <p className="text-[9px] font-mono-tech text-white/60 line-clamp-1">{item.description}</p>
+                                              {item.responsible && <p className="text-[8px] font-mono-tech text-white/25 mt-0.5"><User className="w-2 h-2 inline mr-0.5" />{item.responsible}</p>}
+                                            </div>
+                                            {item.status !== "cerrado" && (
+                                              <button
+                                                onClick={() => onUpdatePunchItem(equipment.tag, item.id!, { status: "cerrado", closed_at: new Date().toISOString() })}
+                                                className="flex-shrink-0 p-1 text-white/20 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                                                title="Cerrar pendiente"
+                                              >
+                                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             )}
-
-                            {/* Progress bar per step */}
-                            <div className={`h-0.5 w-full ${step.status === "completado" ? "bg-emerald-500" : step.status === "en_proceso" ? "bg-yellow-500" : "bg-white/5"}`} />
                           </div>
                         );
                       })}
                     </div>
-                    </ScrollArea>
                   )}
 
                   <input ref={stepPhotoInputRef} type="file" accept="image/*" className="hidden" onChange={handleStepPhotoChange} />

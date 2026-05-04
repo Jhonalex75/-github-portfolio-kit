@@ -207,13 +207,14 @@ function HseTable({ permisos }: { permisos: HsePermit[] }) {
 }
 
 function ProgressBar({ pct, estado }: { pct: number; estado: string }) {
+  const safePct = Math.min(100, Math.max(0, Number.isFinite(pct) ? pct : 0));
   const color = estado.includes('CRÍTICO') ? '#D32F2F' : estado.includes('PROGRESO') ? '#FFA000' : '#2E7D32';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
       <div style={{ flex: 1, backgroundColor: '#E0E0E0', borderRadius: '3px', height: '8px', overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, backgroundColor: color, height: '100%', borderRadius: '3px', transition: 'width 0.3s' }} />
+        <div style={{ width: `${safePct}%`, backgroundColor: color, height: '100%', borderRadius: '3px', transition: 'width 0.3s' }} />
       </div>
-      <span style={{ fontSize: '9px', fontWeight: 'bold', color, minWidth: '28px' }}>{pct}%</span>
+      <span style={{ fontSize: '9px', fontWeight: 'bold', color, minWidth: '28px' }}>{safePct}%</span>
       <span style={{ fontSize: '8px', color: '#757575' }}>{estado}</span>
     </div>
   );
@@ -393,13 +394,16 @@ function ContractorCard({ section }: { section: ContractorSection }) {
           </div>
         )}
 
-        {/* ── METRAJES DE SOLDADURA — solo TECNITANQUES y CYC ── */}
-        {(section.contratista === 'TECNITANQUES' || section.contratista === 'CYC') &&
-          section.weldingMetrics && section.weldingMetrics.length > 0 && (() => {
+        {/* ── METRAJES DE SOLDADURA — cualquier contratista que tenga datos ── */}
+        {section.weldingMetrics && section.weldingMetrics.length > 0 && (() => {
             const totalMl   = section.weldingMetrics!.reduce((s, r) => s + r.metrajeMl,  0);
             const totalSold = section.weldingMetrics!.reduce((s, r) => s + r.soldadores, 0);
-            const weldColor = section.contratista === 'TECNITANQUES' ? '#1B5E20' : '#4A148C';
-            const weldLight = section.contratista === 'TECNITANQUES' ? '#E8F5E9'  : '#F3E5F5';
+            const WELD_COLORS: Record<string, [string, string]> = {
+              'TECNITANQUES': ['#1B5E20', '#E8F5E9'],
+              'CYC':          ['#4A148C', '#F3E5F5'],
+              'HL-GISAICO':   ['#0D47A1', '#E3F2FD'],
+            };
+            const [weldColor, weldLight] = WELD_COLORS[section.contratista] ?? ['#37474F', '#ECEFF1'];
             return (
               <div style={{ pageBreakInside: 'avoid' }}>
                 <SectionTitle color={weldColor}>◆ METRAJES DE SOLDADURA — RENDIMIENTO DIARIO</SectionTitle>
@@ -724,6 +728,13 @@ export function ReportPrintPreview({ data, onClose }: Props) {
                       src={ev.urlOrBase64}
                       alt={ev.name}
                       style={{ width: '100%', height: '120px', objectFit: 'cover', display: 'block' }}
+                      onError={(e) => {
+                        const t = e.currentTarget;
+                        t.onerror = null;
+                        t.style.objectFit = 'none';
+                        t.style.backgroundColor = '#ECEFF1';
+                        t.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23B0BEC5' stroke-width='1.5'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'/%3E%3Cpath d='m21 15-5-5L5 21'/%3E%3C/svg%3E";
+                      }}
                     />
                     <div style={{
                       backgroundColor: '#ECEFF1',

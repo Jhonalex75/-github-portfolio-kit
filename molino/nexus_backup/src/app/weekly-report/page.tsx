@@ -121,79 +121,140 @@ function groupIntoWeeks(reports: ReportDoc[]): WeekGroup[] {
     .sort((a, b) => b.dateFrom.getTime() - a.dateFrom.getTime()); // más reciente primero
 }
 
-// ─── Construir WeeklyReportInput desde un grupo ───────────────────────────────
-function buildWeeklyInput(group: WeekGroup): WeeklyReportInput {
-  const days: WeeklyDayRow[] = group.reports
-    .filter((r) => {
-      const hasNew = !!r.contractor_sections?.['HL-GISAICO'];
-      const hasLeg = r.contractors?.some((c) => c.name === 'HL-GISAICO');
-      return hasNew || hasLeg;
-    })
-    .sort((a, b) => new Date(a.metadata.date).getTime() - new Date(b.metadata.date).getTime())
-    .map((r) => {
-      const d = new Date(r.metadata.date);
-      const dateLabel = `${fmtDate(d)} ${d.getFullYear()}`;
-      const dayName   = DAY_NAMES_ES[d.getDay()];
+// ─── Extraer datos HL-GISAICO de un ReportDoc ────────────────────────────────
+function extractReportData(r: ReportDoc) {
+  const d    = new Date(r.metadata.date);
+  const sec  = r.contractor_sections?.['HL-GISAICO'];
+  const leg  = r.contractors?.find((c) => c.name === 'HL-GISAICO');
 
-      // ── Extraer datos HL-GISAICO (nuevo formato preferido) ──
-      const sec = r.contractor_sections?.['HL-GISAICO'];
-      const leg = r.contractors?.find((c) => c.name === 'HL-GISAICO');
-
-      const personnel = sec?.personnel ?? {
-        mecanicos:      leg?.breakdown?.mecanicos      ?? 0,
-        soldadores:     leg?.breakdown?.soldadores     ?? 0,
-        auxiliares:     leg?.breakdown?.auxiliares     ?? 0,
-        armadores:      leg?.breakdown?.armadores      ?? 0,
-        inspectoresHSE: 0,
-      };
-      const total = (personnel.mecanicos || 0) + (personnel.soldadores || 0) +
+  const personnel = sec?.personnel ?? {
+    mecanicos:      leg?.breakdown?.mecanicos      ?? 0,
+    soldadores:     leg?.breakdown?.soldadores     ?? 0,
+    auxiliares:     leg?.breakdown?.auxiliares     ?? 0,
+    armadores:      leg?.breakdown?.armadores      ?? 0,
+    inspectoresHSE: 0,
+  };
+  const specTotal = (personnel.mecanicos || 0) + (personnel.soldadores || 0) +
                     (personnel.auxiliares || 0) + (personnel.armadores || 0) +
                     (personnel.inspectoresHSE || 0);
-      // fallback al total del legacy si todo es 0
-      const finalTotal = total > 0 ? total : (leg?.personnel ?? 0);
 
-      const equipment = sec?.equipment ?? {
-        grua:          leg?.equipment?.grua          ?? 0,
-        generador:     leg?.equipment?.generador     ?? 0,
-        andamios:      leg?.equipment?.andamios      ?? 0,
-        camionGrua:    leg?.equipment?.camionGrua    ?? 0,
-        torreGrua:     leg?.equipment?.torreGrua     ?? 0,
-        equipoEspecial: leg?.equipment?.equipoEspecial ?? '',
-      };
+  const equipment = sec?.equipment ?? {
+    grua:           leg?.equipment?.grua           ?? 0,
+    generador:      leg?.equipment?.generador      ?? 0,
+    andamios:       leg?.equipment?.andamios       ?? 0,
+    camionGrua:     leg?.equipment?.camionGrua     ?? 0,
+    torreGrua:      leg?.equipment?.torreGrua      ?? 0,
+    equipoEspecial: leg?.equipment?.equipoEspecial ?? '',
+  };
 
-      const lh = sec?.lostHours ?? {
-        malClima:      leg?.lostHours?.malClima      ?? 0,
-        parosHSE:      leg?.lostHours?.parosHSE      ?? 0,
-        fallasTecnicas: leg?.lostHours?.fallasTecnicas ?? 0,
-      };
-      const lostTotal = (lh.malClima || 0) + (lh.parosHSE || 0) + (lh.fallasTecnicas || 0);
+  const lh = sec?.lostHours ?? {
+    malClima:       leg?.lostHours?.malClima       ?? 0,
+    parosHSE:       leg?.lostHours?.parosHSE       ?? 0,
+    fallasTecnicas: leg?.lostHours?.fallasTecnicas ?? 0,
+  };
 
-      const checklist = sec?.checklist ?? {
-        workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false,
-      };
+  const checklist  = sec?.checklist  ?? { workAtHeights: false, hotWork: false, confinedSpace: false, scaffolding: false };
+  const safetyInfo = sec?.safetyInfo ?? r.safety_info ?? { comments: '', incidents: 0, nearMisses: 0, eppObservations: '', lessonsLearned: '' };
 
-      const safetyInfo = sec?.safetyInfo ?? r.safety_info ?? {
-        comments: '', incidents: 0, nearMisses: 0, eppObservations: '', lessonsLearned: '',
-      };
+  return {
+    dateKey:         r.metadata.date.slice(0, 10),
+    date:            r.metadata.date,
+    dateLabel:       `${fmtDate(d)} ${d.getFullYear()}`,
+    dayName:         DAY_NAMES_ES[d.getDay()],
+    consecutiveId:   r.metadata.consecutiveId,
+    weather:         r.metadata.weather,
+    authorName:      r.metadata.authorName,
+    frente:          r.metadata.frente,
+    personnel:       { ...personnel, total: specTotal > 0 ? specTotal : (leg?.personnel ?? 0) },
+    equipment,
+    lostHours:       { ...lh, total: (lh.malClima || 0) + (lh.parosHSE || 0) + (lh.fallasTecnicas || 0) },
+    checklist,
+    safetyInfo,
+    activities:      sec?.activities    ?? '',
+    weldingMetrics:  sec?.weldingMetrics ?? [],
+    adminActivities: r.admin_activities  ?? [],
+  };
+}
 
-      return {
-        date:         r.metadata.date,
-        dateLabel,
-        dayName,
-        consecutiveId: r.metadata.consecutiveId,
-        weather:      r.metadata.weather,
-        authorName:   r.metadata.authorName,
-        frente:       r.metadata.frente,
-        personnel:    { ...personnel, total: finalTotal },
-        equipment,
-        lostHours:    { ...lh, total: lostTotal },
-        checklist,
-        safetyInfo,
-        activities:   sec?.activities ?? '',
-        weldingMetrics: sec?.weldingMetrics ?? [],
-        adminActivities: r.admin_activities ?? [],
-      } satisfies WeeklyDayRow;
-    });
+type ReportData = ReturnType<typeof extractReportData>;
+
+// ─── Fusionar N informes del mismo día en un WeeklyDayRow ─────────────────────
+function mergeReportsForDay(items: ReportData[]): WeeklyDayRow {
+  const first  = items[0];
+  const n      = (v: number | undefined) => v || 0;
+  const sumF   = (fn: (x: ReportData) => number) => items.reduce((s, x) => s + fn(x), 0);
+  const uniq   = (arr: string[]) => [...new Set(arr.filter(Boolean))];
+  const joinU  = (arr: string[], sep: string) => uniq(arr).join(sep);
+  const mergeText = (arr: string[], sep: string) => { const u = uniq(arr); return u.length <= 1 ? (u[0] ?? '') : u.join(sep); };
+  const multi  = items.length > 1;
+
+  return {
+    date:            first.date,
+    dateLabel:       first.dateLabel,
+    dayName:         first.dayName,
+    consecutiveId:   items.map(x => x.consecutiveId).join(' / '),
+    weather:         items.find(x => x.weather)?.weather ?? '',
+    authorName:      joinU(items.map(x => x.authorName), ' · '),
+    frente:          joinU(items.map(x => x.frente), ' · '),
+    personnel: {
+      mecanicos:      sumF(x => n(x.personnel.mecanicos)),
+      soldadores:     sumF(x => n(x.personnel.soldadores)),
+      auxiliares:     sumF(x => n(x.personnel.auxiliares)),
+      armadores:      sumF(x => n(x.personnel.armadores)),
+      inspectoresHSE: sumF(x => n(x.personnel.inspectoresHSE)),
+      total:          sumF(x => n(x.personnel.total)),
+    },
+    equipment: {
+      grua:           sumF(x => n(x.equipment.grua)),
+      generador:      sumF(x => n(x.equipment.generador)),
+      andamios:       sumF(x => n(x.equipment.andamios)),
+      camionGrua:     sumF(x => n(x.equipment.camionGrua)),
+      torreGrua:      sumF(x => n(x.equipment.torreGrua)),
+      equipoEspecial: joinU(items.map(x => x.equipment.equipoEspecial ?? ''), ' · '),
+    },
+    lostHours: {
+      malClima:       sumF(x => n(x.lostHours.malClima)),
+      parosHSE:       sumF(x => n(x.lostHours.parosHSE)),
+      fallasTecnicas: sumF(x => n(x.lostHours.fallasTecnicas)),
+      total:          sumF(x => n(x.lostHours.total)),
+    },
+    checklist: {
+      workAtHeights: items.some(x => x.checklist.workAtHeights),
+      hotWork:       items.some(x => x.checklist.hotWork),
+      confinedSpace: items.some(x => x.checklist.confinedSpace),
+      scaffolding:   items.some(x => x.checklist.scaffolding),
+    },
+    safetyInfo: {
+      incidents:       sumF(x => n(x.safetyInfo.incidents)),
+      nearMisses:      sumF(x => n(x.safetyInfo.nearMisses)),
+      comments:        mergeText(items.map(x => x.safetyInfo.comments),        ' ‖ '),
+      eppObservations: mergeText(items.map(x => x.safetyInfo.eppObservations), ' ‖ '),
+      lessonsLearned:  mergeText(items.map(x => x.safetyInfo.lessonsLearned),  ' ‖ '),
+    },
+    // Si hay varios informes del día, prefija cada bloque con su frente
+    activities:      items.filter(x => x.activities)
+                          .map(x => multi ? `[${x.frente || x.consecutiveId}] ${x.activities}` : x.activities)
+                          .join('\n— '),
+    weldingMetrics:  items.flatMap(x => x.weldingMetrics),
+    adminActivities: items.flatMap(x => x.adminActivities),
+  } satisfies WeeklyDayRow;
+}
+
+// ─── Construir WeeklyReportInput desde un grupo ───────────────────────────────
+function buildWeeklyInput(group: WeekGroup): WeeklyReportInput {
+  // 1. Filtrar y extraer datos por reporte, ordenados por fecha
+  const extracted = group.reports
+    .filter((r) => r.contractor_sections?.['HL-GISAICO'] || r.contractors?.some((c) => c.name === 'HL-GISAICO'))
+    .sort((a, b) => new Date(a.metadata.date).getTime() - new Date(b.metadata.date).getTime())
+    .map(extractReportData);
+
+  // 2. Agrupar por día (YYYY-MM-DD) y fusionar múltiples informes del mismo día
+  const byDay = new Map<string, ReportData[]>();
+  extracted.forEach((item) => {
+    if (!byDay.has(item.dateKey)) byDay.set(item.dateKey, []);
+    byDay.get(item.dateKey)!.push(item);
+  });
+  const days: WeeklyDayRow[] = Array.from(byDay.values()).map(mergeReportsForDay);
 
   const weekNum = Math.ceil(
     (group.dateFrom.getDate() + new Date(group.dateFrom.getFullYear(), 0, 1).getDay()) / 7
@@ -291,9 +352,11 @@ export default function WeeklyReportPage() {
     setGenerating(true);
     try {
       await generateWeeklyReportExcel(weekInput);
+      const nd = weekInput.days.length;
+      const ni = weekInput.days.reduce((s, d) => s + d.consecutiveId.split(' / ').length, 0);
       toast({
         title: '✅ Excel generado',
-        description: `${weekInput.weekLabel} — ${weekInput.days.length} informes procesados. Revise su carpeta de descargas.`,
+        description: `${weekInput.weekLabel} — ${nd} día${nd !== 1 ? 's' : ''} (${ni} informe${ni !== 1 ? 's' : ''} fusionados). Revise su carpeta de descargas.`,
       });
     } catch (err) {
       console.error(err);
@@ -347,11 +410,14 @@ export default function WeeklyReportPage() {
             {weeksWithHLG.length > 0 && (
               <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto pr-1">
                 {weeksWithHLG.map((w) => {
-                  const isSelected = w.key === selectedKey;
-                  const count = w.reports.filter(r =>
+                  const isSelected   = w.key === selectedKey;
+                  const hlgReports   = w.reports.filter(r =>
                     r.contractor_sections?.['HL-GISAICO'] ||
                     r.contractors?.some(c => c.name === 'HL-GISAICO')
-                  ).length;
+                  );
+                  const count        = hlgReports.length;
+                  const uniqueDays   = new Set(hlgReports.map(r => r.metadata.date.slice(0, 10))).size;
+                  const multiPerDay  = count > uniqueDays;
                   return (
                     <button
                       key={w.key}
@@ -371,7 +437,9 @@ export default function WeeklyReportPage() {
                             {w.label}
                           </div>
                           <div className="text-[10px] font-mono-tech opacity-60 mt-0.5">
-                            {count} informe{count !== 1 ? 's' : ''} · HL-GISAICO
+                            {count} informe{count !== 1 ? 's' : ''}
+                            {multiPerDay ? ` (${uniqueDays} días, fusionados)` : ` · ${uniqueDays} día${uniqueDays !== 1 ? 's' : ''}`}
+                            {' · HL-GISAICO'}
                           </div>
                         </div>
                       </div>

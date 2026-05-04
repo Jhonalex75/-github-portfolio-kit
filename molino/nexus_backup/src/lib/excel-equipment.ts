@@ -298,12 +298,32 @@ export async function exportEquipmentHojaDeVida(
 
   const equipNcs   = ncs.filter(n => n.related_equipment === equipment.tag);
   const staticPlan = MILL_ASSEMBLY_PLANS[equipment.tag] ?? [];
-  const stepsData  = assemblySteps.length > 0 ? assemblySteps : staticPlan.map((s, i) => ({
+  const rawSteps   = assemblySteps.length > 0 ? assemblySteps : staticPlan.map((s, i) => ({
     id: `s${i}`, equipment_tag: equipment.tag,
     step_number: s.step_number, title: s.title, description: s.description,
     weight_pct: s.weight_pct, status: 'pendiente' as const,
     iom_ref: s.iom_ref, proc_ref: s.proc_ref,
   }));
+
+  // Agrupar por step_number → una fila por etapa (evita duplicados por historial)
+  const stepGroups = new Map<number, typeof rawSteps[0][]>();
+  for (const s of rawSteps) {
+    if (!stepGroups.has(s.step_number)) stepGroups.set(s.step_number, []);
+    stepGroups.get(s.step_number)!.push(s);
+  }
+  // stepsData: un objeto por etapa (estado más reciente) + array de historial
+  const stepsData = [...stepGroups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, entries]) => {
+      const sorted = [...entries].sort((a, b) => {
+        const da = (a as any).completion_date || (a as any).start_date || '';
+        const db = (b as any).completion_date || (b as any).start_date || '';
+        return db.localeCompare(da);
+      });
+      return { ...sorted[0], _history: sorted.length > 1 ? sorted.slice(1).reverse() : [] };
+    });
+  const maxHist = Math.max(0, ...stepsData.map(s => (s as any)._history.length));
+
   const progress      = calcAssemblyProgress(assemblySteps);
   const completedSteps = stepsData.filter(s => s.status === 'completado').length;
   const inProcSteps    = stepsData.filter(s => s.status === 'en_proceso').length;
@@ -461,18 +481,17 @@ export async function exportEquipmentHojaDeVida(
     rn = ws1.rowCount;
     const statusFillColor = stepStatusFill(step.status);
     const isAlt = idx % 2 === 0;
-
+    // Estado actual en una sola fila (sin repetir por historial)
     const rowData = [
       step.step_number,
       step.title,
       `${step.weight_pct}%`,
       ASSEMBLY_STEP_STATUS_LABELS[step.status] || step.status,
       (step as any).responsible || '—',
-      (step as any).completion_date || '—',
+      (step as any).completion_date || (step as any).start_date || '—',
       (step as any).iom_ref || '—',
       (step as any).proc_ref || '—',
     ];
-
     rowData.forEach((v, ci) => {
       const cell = ws1.getCell(`${numToCol(ci + 1)}${rn}`);
       cell.value = v;
@@ -659,13 +678,32 @@ export async function exportEquipmentHojaDeVida(
   ws3.getCell(`A${rn3}`).value = `${Math.round(progress)}%`;
   apply(ws3.getCell(`A${rn3}`), { font: { name: 'Calibri', size: 9, bold: true, color: { argb: C.white } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: C.sgsOrange } }, alignment: { horizontal: 'left', vertical: 'middle' } });
 
+  // Columnas fijas (9) + dinámicas de historial (4 por actualización)
+  const FIXED3  = 9;
+  const HCOLS3  = 4; // Fecha | Estado | Responsable | Observaciones
+  const TOTAL3  = FIXED3 + maxHist * HCOLS3;
+  ws3.columns = [
+    { width: 5 }, { width: 28 }, { width: 52 }, { width: 8 }, { width: 14 },
+    { width: 16 }, { width: 12 }, { width: 14 }, { width: 30 },
+    ...Array(maxHist * HCOLS3).fill({ width: 20 }),
+  ];
+
   ws3.addRow([]);
   rn3 = ws3.rowCount;
-  const stepColHdrs = ['N°', 'TÍTULO DE ETAPA', 'DESCRIPCIÓN TÉCNICA', 'PESO %', 'ESTADO', 'RESPONSABLE', 'F. INICIO', 'F. COMPLETADO', 'OBSERVACIONES'];
+  const stepColHdrs = ['N°', 'TÍTULO DE ETAPA', 'DESCRIPCIÓN TÉCNICA', 'PESO %', 'ESTADO ACTUAL', 'RESPONSABLE', 'F. INICIO', 'F. COMPLETADO', 'OBSERVACIONES'];
   stepColHdrs.forEach((h, i) => {
     ws3.getCell(`${numToCol(i + 1)}${rn3}`).value = h;
     apply(ws3.getCell(`${numToCol(i + 1)}${rn3}`), hdr(C.sgsOrange, C.white, 9));
   });
+  // Cabeceras dinámicas de actualizaciones
+  for (let h = 0; h < maxHist; h++) {
+    const base = FIXED3 + h * HCOLS3;
+    [`Upd.${h + 1} Fecha`, `Upd.${h + 1} Estado`, `Upd.${h + 1} Responsable`, `Upd.${h + 1} Observaciones`].forEach((label, i) => {
+      const cell = ws3.getCell(`${numToCol(base + i + 1)}${rn3}`);
+      cell.value = label;
+      apply(cell, hdr('FF2D4A6A', C.white, 8));
+    });
+  }
   ws3.getRow(rn3).height = 22;
 
   stepsData.forEach((step, idx) => {
@@ -673,7 +711,9 @@ export async function exportEquipmentHojaDeVida(
     rn3 = ws3.rowCount;
     const sfColor = stepStatusFill(step.status);
     const isAlt   = idx % 2 === 0;
-    const row = [
+    const rowBg   = isAlt ? C.lightGray : C.white;
+    // Fila única con estado actual
+    const fixedVals = [
       step.step_number,
       step.title,
       step.description,
@@ -682,16 +722,37 @@ export async function exportEquipmentHojaDeVida(
       (step as any).responsible || '—',
       (step as any).start_date || '—',
       (step as any).completion_date || '—',
-      (step as any).observations || '',
+      (step as any).observations || '—',
     ];
-    row.forEach((v, ci) => {
+    fixedVals.forEach((v, ci) => {
       const cell = ws3.getCell(`${numToCol(ci + 1)}${rn3}`);
       cell.value = v as string | number;
       if (ci === 4) {
         apply(cell, { font: { name: 'Calibri', size: 9, bold: true, color: { argb: C.white } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: sfColor } }, alignment: { horizontal: 'center', vertical: 'middle', wrapText: true }, border: brd('FFD0D0D0') });
       } else {
-        apply(cell, dat(isAlt ? C.lightGray : C.white, C.black, 9, ci === 0 ? 'center' : ci === 3 ? 'center' : 'left'));
+        apply(cell, dat(rowBg, C.black, 9, ci === 0 || ci === 3 ? 'center' : 'left'));
       }
+    });
+    // Columnas de historial (actualizaciones anteriores) — mismo renglón
+    const hist = (step as any)._history as typeof stepsData[0][];
+    hist.forEach((h, hi) => {
+      const base = FIXED3 + hi * HCOLS3;
+      const histSf = stepStatusFill(h.status);
+      const hVals = [
+        (h as any).completion_date || (h as any).start_date || '—',
+        ASSEMBLY_STEP_STATUS_LABELS[h.status] || h.status,
+        (h as any).responsible || '—',
+        (h as any).observations || '—',
+      ];
+      hVals.forEach((v, vi) => {
+        const cell = ws3.getCell(`${numToCol(base + vi + 1)}${rn3}`);
+        cell.value = v as string;
+        if (vi === 1) {
+          apply(cell, { font: { name: 'Calibri', size: 8, bold: true, color: { argb: C.white } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: histSf } }, alignment: { horizontal: 'center', vertical: 'middle', wrapText: true }, border: brd('FFD0D0D0') });
+        } else {
+          apply(cell, dat('FFE8F0F8', C.black, 8, vi === 0 ? 'center' : 'left'));
+        }
+      });
     });
     ws3.getRow(rn3).height = 40;
   });
@@ -711,7 +772,7 @@ export async function exportEquipmentHojaDeVida(
     rn3 = ws3.rowCount;
     [step.step_number, step.title, (step as any).iom_ref || '—', (step as any).proc_ref || '—'].forEach((v, ci) => {
       ws3.getCell(`${numToCol(ci + 1)}${rn3}`).value = v as string | number;
-      apply(ws3.getCell(`${numToCol(ci + 1)}${rn3}`), dat(idx % 2 === 0 ? C.lightGray : C.white, C.black, 9));
+      apply(ws3.getCell(`${numToCol(ci + 1)}${rn3}`), dat(idx % 2 === 0 ? C.lightGray : C.white, C.black, 9, ci === 0 ? 'center' : 'left'));
     });
     ws3.getRow(rn3).height = 18;
   });

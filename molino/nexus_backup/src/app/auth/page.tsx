@@ -7,13 +7,13 @@ import { Hexagon, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAuth, useUser, useFirestore, setDocumentNonBlocking } from "@/firebase";
+import { useAuth, useUser, useFirestore } from "@/firebase";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { doc } from "firebase/firestore";
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  updateProfile 
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile
 } from "firebase/auth";
 
 const OWNER_UID = "R3MVwE12nVMg128Kv6bdwJ6MKav1";
@@ -25,6 +25,32 @@ function formatProfName(raw: string): string {
   return upper.startsWith('ING.') ? upper : `ING. ${upper}`;
 }
 
+async function ensureUserDocument(
+  firestore: ReturnType<typeof import('firebase/firestore').getFirestore>,
+  uid: string,
+  email: string,
+  displayName: string | null,
+  photoURL: string | null,
+) {
+  const userRef = doc(firestore, "users", uid);
+  const snap = await getDoc(userRef);
+  if (!snap.exists()) {
+    const isRoot = uid === OWNER_UID || OWNER_EMAILS.includes(email.toLowerCase());
+    await setDoc(userRef, {
+      id: uid,
+      displayName: displayName || email.split('@')[0],
+      email: email.toLowerCase(),
+      role: isRoot ? "ROOT_MONITOR" : "ENGINEER",
+      specialty: isRoot ? "System Monitor • Root Authority" : "Mechanical Engineer",
+      profesionalName: isRoot
+        ? 'MSC. ING. JHON ALEXANDER VALENCIA MARULANDA'
+        : formatProfName(displayName || email.split('@')[0]),
+      photoURL: photoURL || null,
+      createdAt: new Date().toISOString(),
+    });
+  }
+}
+
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
@@ -33,7 +59,7 @@ export default function AuthPage() {
   const [profesionalName, setProfesionalName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const auth = useAuth();
   const { user } = useUser();
   const firestore = useFirestore();
@@ -48,45 +74,56 @@ export default function AuthPage() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth || !firestore) return;
-    
+
     setLoading(true);
     setError(null);
 
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        // Garantizar documento de Firestore para usuarios existentes que pudieran no tenerlo
+        await ensureUserDocument(
+          firestore,
+          cred.user.uid,
+          email,
+          cred.user.displayName,
+          cred.user.photoURL,
+        );
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(userCredential.user, { displayName });
-        
-        const userRef = doc(firestore, "users", userCredential.user.uid);
-        const isRoot = userCredential.user.uid === OWNER_UID || OWNER_EMAILS.includes(email.toLowerCase());
-        
+
+        const isRoot =
+          userCredential.user.uid === OWNER_UID ||
+          OWNER_EMAILS.includes(email.toLowerCase());
+
         const profName = isRoot
           ? 'MSC. ING. JHON ALEXANDER VALENCIA MARULANDA'
           : formatProfName(profesionalName || displayName);
 
-        setDocumentNonBlocking(userRef, {
+        // Bloqueante: esperar confirmación antes de continuar
+        await setDoc(doc(firestore, "users", userCredential.user.uid), {
           id: userCredential.user.uid,
           displayName: displayName,
           email: email.toLowerCase(),
           role: isRoot ? "ROOT_MONITOR" : "ENGINEER",
           specialty: isRoot ? "System Monitor • Root Authority" : "Mechanical Engineer",
           profesionalName: profName,
-          createdAt: new Date().toISOString()
-        }, { merge: true });
+          photoURL: null,
+          createdAt: new Date().toISOString(),
+        });
       }
       router.push("/");
     } catch (err: unknown) {
       const authErr = err as { code?: string };
       console.error("Auth Protocol Failure:", authErr.code);
       let message = "FALLO EN EL PROTOCOLO DE AUTENTICACIÓN.";
-      
+
       if (authErr.code === 'auth/email-already-in-use') {
         message = "EL CORREO YA ESTÁ REGISTRADO.";
       } else if (
-        authErr.code === 'auth/wrong-password' || 
-        authErr.code === 'auth/user-not-found' || 
+        authErr.code === 'auth/wrong-password' ||
+        authErr.code === 'auth/user-not-found' ||
         authErr.code === 'auth/invalid-credential' ||
         authErr.code === 'auth/invalid-password'
       ) {
@@ -147,17 +184,17 @@ export default function AuthPage() {
                 </div>
               </>
             )}
-            <Input 
+            <Input
               type="email"
-              placeholder="EMAIL@INSTITUTION.EDU" 
+              placeholder="EMAIL@INSTITUTION.EDU"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="bg-primary/5 border-primary/20 h-12 rounded-none font-mono-tech text-xs tracking-widest"
               required
             />
-            <Input 
+            <Input
               type="password"
-              placeholder="CÓDIGO DE ACCESO" 
+              placeholder="CÓDIGO DE ACCESO"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="bg-primary/5 border-primary/20 h-12 rounded-none font-mono-tech text-xs tracking-widest"

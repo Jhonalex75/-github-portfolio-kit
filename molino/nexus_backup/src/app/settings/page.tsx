@@ -105,15 +105,14 @@ export default function SettingsPage() {
       });
 
       // Sincronizar con Firestore (Persistencia Real)
+      // Solo se actualizan campos de perfil seguros — role y specialty los asigna el sistema al registro.
       const userRef = doc(firestore, "users", auth.currentUser.uid);
-      
+
       setDocumentNonBlocking(userRef, {
         id: auth.currentUser.uid,
         displayName: displayName || (isOwner ? OWNER_FULL_NAME : auth.currentUser.displayName),
         photoURL: photoURL,
         email: auth.currentUser.email?.toLowerCase(),
-        role: isOwner ? "ROOT_MONITOR" : (userData?.role || "ENGINEER"),
-        specialty: isOwner ? "System Monitor • Root Authority" : (userData?.specialty || "Mechanical Engineer"),
         updatedAt: new Date().toISOString()
       }, { merge: true });
       

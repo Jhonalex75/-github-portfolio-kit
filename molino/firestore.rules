@@ -49,22 +49,39 @@ service cloud.firestore {
                     );
     }
 
+    // ===== PARTNER PDF SOURCES — audit trail of imported partner reports =====
+    match /projects/default-nexus-project/pdf_sources/{sourceId} {
+      allow read:   if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+                       request.auth.uid == resource.data.uploadedBy ||
+                       request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
+                       isAdmin(request.auth.uid)
+                    );
+      allow delete: if isAuthenticated() && (
+                       request.auth.uid in ["R3MVwE12nVMg128Kv6bdwJ6MKav1", "Ew4plK83Z9O6c8J1dM3F0tP04A83"] ||
+                       isAdmin(request.auth.uid)
+                    );
+    }
+
     // ===== USERS COLLECTION =====
     match /users/{userId} {
       // Users can read their own profile
       allow read: if isOwner(userId);
-      
-      // Users can update their own profile (except sensitive fields)
-      allow update: if isOwner(userId) && 
-                       !request.resource.data.keys().hasAny(['admin', 'role', 'permissions']);
-      
-      // User creation on signup
-      allow create: if request.auth.uid == userId && 
-                       !request.resource.data.keys().hasAny(['admin', 'role']);
-      
+
+      // Users can update their own profile — only check CHANGED fields, not all resulting keys.
+      // This allows saving photoURL/displayName even when the document already contains 'role'.
+      allow update: if isOwner(userId) &&
+                       !request.resource.data.diff(resource.data).affectedKeys().hasAny(['admin', 'role', 'permissions']);
+
+      // User creation on signup — allow initial role assignment (ENGINEER/ROOT_MONITOR),
+      // but never allow setting 'admin' or 'permissions' via client code.
+      allow create: if request.auth.uid == userId &&
+                       !request.resource.data.keys().hasAny(['admin', 'permissions']);
+
       // Admin can manage any user
       allow read, write: if isAdmin(request.auth.uid);
-      
+
       // User preferences subcollection
       match /preferences/{document=**} {
         allow read, write: if isOwner(userId);
@@ -306,6 +323,14 @@ service cloud.firestore {
       allow delete: if isAdmin(request.auth.uid);
     }
 
+    // ===== BIBLIOTECA DE PLANOS =====
+    match /drawings/{drawingId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isAdmin(request.auth.uid);
+      allow delete: if isAuthenticated() && isAdmin(request.auth.uid);
+      allow update: if false;
+    }
+
     // ===== GALERÍA DE CAMPO — TAGs de equipos =====
     match /equipment_photo_tags/{tagId} {
       allow read: if isAuthenticated();
@@ -325,6 +350,36 @@ service cloud.firestore {
                        request.auth.uid == "R3MVwE12nVMg128Kv6bdwJ6MKav1" ||
                        isAdmin(request.auth.uid)
                     );
+    }
+
+    // ===== PRESENCIA EN TIEMPO REAL =====
+    // Cualquier usuario autenticado puede VER quién está en línea.
+    // Solo el propio usuario (o admin) puede ESCRIBIR su presencia.
+    match /presence/{uid} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && request.auth.uid == uid;
+      allow delete: if isAuthenticated() && (request.auth.uid == uid || isAdmin(request.auth.uid));
+    }
+
+    // ===== MENSAJES DIRECTOS =====
+    match /direct_messages/{conversationId} {
+      // Solo participantes de la conversación pueden leerla / actualizarla
+      allow read:   if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow delete: if isAdmin(request.auth.uid);
+
+      match /messages/{messageId} {
+        // Solo participantes de la conversación padre pueden leer/escribir mensajes
+        allow read: if isAuthenticated() &&
+          request.auth.uid in get(/databases/$(database)/documents/direct_messages/$(conversationId)).data.participants;
+        allow create: if isAuthenticated() &&
+          request.resource.data.senderId == request.auth.uid &&
+          request.auth.uid in get(/databases/$(database)/documents/direct_messages/$(conversationId)).data.participants;
+        allow update: if isAuthenticated() &&
+          request.auth.uid in get(/databases/$(database)/documents/direct_messages/$(conversationId)).data.participants;
+        allow delete: if isAdmin(request.auth.uid);
+      }
     }
 
     // ===== DEFAULT DENY ALL =====
