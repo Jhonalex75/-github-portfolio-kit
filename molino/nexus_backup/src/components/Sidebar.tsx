@@ -22,6 +22,7 @@ import {
   BookMarked,
   GalleryHorizontalEnd,
   BarChart3,
+  HardHat,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,7 @@ export function Sidebar() {
     { name: "Informe Semanal", icon: BarChart3, href: "/weekly-report" },
     { name: "Galería de Campo", icon: GalleryHorizontalEnd, href: "/fotos-campo" },
     { name: "Biblioteca de Planos", icon: BookMarked, href: "/planos" },
+    { name: "Operaciones de Izaje", icon: HardHat, href: "/operaciones-izaje" },
   ];
 
   const finalPhotoURL = userData?.photoURL || user?.photoURL;
